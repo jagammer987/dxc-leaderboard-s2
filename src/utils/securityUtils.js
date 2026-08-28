@@ -2,7 +2,7 @@
  * Stealth Admin Security & Rate-Limited PIN Management for DriftxCommune
  */
 
-const DEFAULT_ADMIN_PIN = 'driftx2026';
+const DEFAULT_ADMIN_PIN = 'Drift@X3commune';
 const PIN_STORAGE_KEY = 'driftx_admin_custom_pin';
 const SESSION_KEY = 'driftx_admin_auth_token';
 const ATTEMPTS_KEY = 'driftx_failed_pin_attempts';
@@ -73,7 +73,7 @@ export function verifyAdminPin(enteredPin) {
     }
 
     const remainingAttempts = MAX_FAILED_ATTEMPTS - attempts;
-    throw new Error(`Incorrect PIN. ${remainingAttempts} attempts remaining before security lockout.`);
+    throw new Error(`Incorrect Password. ${remainingAttempts} attempts remaining before security lockout.`);
   }
 }
 

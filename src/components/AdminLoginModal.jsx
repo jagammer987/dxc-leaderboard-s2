@@ -9,7 +9,8 @@ import {
   Eye, 
   EyeOff,
   LogOut,
-  AlertTriangle
+  AlertTriangle,
+  CheckCircle2
 } from 'lucide-react';
 import { 
   verifyAdminPin, 
@@ -83,19 +84,19 @@ export default function AdminLoginModal({
     setSuccessMsg('');
 
     if (newPin.length < 4) {
-      setErrorMsg('New PIN must be at least 4 characters');
+      setErrorMsg('New Password must be at least 4 characters');
       return;
     }
 
     if (newPin !== confirmPin) {
-      setErrorMsg('New PIN and confirmation do not match');
+      setErrorMsg('New Password and confirmation do not match');
       return;
     }
 
     try {
       setAdminPin(newPin);
       soundEffects.playRadioChime();
-      setSuccessMsg('Admin PIN updated successfully!');
+      setSuccessMsg('Marshal Password updated and saved successfully!');
       setIsChangingPin(false);
       setNewPin('');
       setConfirmPin('');
@@ -121,7 +122,7 @@ export default function AdminLoginModal({
                 {isAdmin ? 'MARSHAL CONSOLE ACTIVE' : 'MARSHAL / ADMIN ACCESS'}
               </h2>
               <p className="text-xs font-tech text-neutral-400">
-                {isAdmin ? 'TOURNAMENT MANAGEMENT UNLOCKED' : 'ENTER SECURE PIN TO LOG HOTLAPS'}
+                {isAdmin ? 'TOURNAMENT MANAGEMENT UNLOCKED' : 'ENTER SECURE PASSWORD TO LOG HOTLAPS'}
               </p>
             </div>
           </div>
@@ -158,7 +159,7 @@ export default function AdminLoginModal({
 
         {successMsg && (
           <div className="mt-4 p-3 bg-emerald-950/60 border border-emerald-500/60 text-emerald-300 rounded-xl text-xs flex items-center space-x-2">
-            <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-400" />
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
             <span>{successMsg}</span>
           </div>
         )}
@@ -168,7 +169,7 @@ export default function AdminLoginModal({
           <form onSubmit={handleLogin} className="mt-5 space-y-4 font-tech">
             <div>
               <label className="text-xs font-bold text-neutral-300 block mb-1.5 uppercase tracking-wider">
-                Enter Admin / Marshal PIN
+                Enter Marshal Password
               </label>
               
               <div className="relative">
@@ -177,7 +178,7 @@ export default function AdminLoginModal({
                   required
                   disabled={lockoutSec > 0}
                   autoFocus
-                  placeholder="Enter PIN (Default: driftx2026)"
+                  placeholder="Enter Password"
                   value={pin}
                   onChange={(e) => setPin(e.target.value)}
                   className="w-full bg-black border border-neutral-700 rounded-xl pl-4 pr-11 py-2.5 text-sm text-white font-mono placeholder-neutral-600 focus:outline-none focus:border-red-600 disabled:opacity-50"
@@ -190,8 +191,9 @@ export default function AdminLoginModal({
                   {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-              <p className="text-[11px] text-neutral-500 mt-1.5">
-                Default PIN: <code className="bg-neutral-900 px-1.5 py-0.5 rounded text-red-500 font-mono">driftx2026</code>
+              <p className="text-[11px] text-neutral-500 mt-1.5 flex items-center space-x-1">
+                <Lock className="w-3 h-3 text-red-500" />
+                <span>Protected by DriftxCommune Security System</span>
               </p>
             </div>
 
@@ -235,11 +237,15 @@ export default function AdminLoginModal({
                 <div className="flex flex-col gap-2">
                   <button
                     type="button"
-                    onClick={() => setIsChangingPin(true)}
+                    onClick={() => {
+                      setIsChangingPin(true);
+                      setErrorMsg('');
+                      setSuccessMsg('');
+                    }}
                     className="flex items-center justify-center space-x-2 p-2.5 rounded-lg bg-[#0E121A] hover:bg-neutral-800 text-neutral-300 border border-neutral-800 text-xs font-bold transition"
                   >
                     <KeyRound className="w-4 h-4 text-red-500" />
-                    <span>Change Admin PIN</span>
+                    <span>Change Password</span>
                   </button>
 
                   <button
@@ -253,16 +259,16 @@ export default function AdminLoginModal({
                 </div>
               </div>
             ) : (
-              /* Change PIN Form */
+              /* Change Password Form */
               <form onSubmit={handleChangePin} className="space-y-3">
                 <div>
                   <label className="text-xs font-bold text-neutral-300 block mb-1">
-                    New Admin PIN (Min 4 characters)
+                    New Password (Min 4 characters)
                   </label>
                   <input
                     type="password"
                     required
-                    placeholder="Enter new PIN"
+                    placeholder="Enter new password"
                     value={newPin}
                     onChange={(e) => setNewPin(e.target.value)}
                     className="w-full bg-black border border-neutral-700 rounded-lg px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-red-600"
@@ -271,12 +277,12 @@ export default function AdminLoginModal({
 
                 <div>
                   <label className="text-xs font-bold text-neutral-300 block mb-1">
-                    Confirm New Admin PIN
+                    Confirm New Password
                   </label>
                   <input
                     type="password"
                     required
-                    placeholder="Re-enter new PIN"
+                    placeholder="Re-enter new password"
                     value={confirmPin}
                     onChange={(e) => setConfirmPin(e.target.value)}
                     className="w-full bg-black border border-neutral-700 rounded-lg px-3.5 py-2 text-xs text-white font-mono focus:outline-none focus:border-red-600"
@@ -298,7 +304,7 @@ export default function AdminLoginModal({
                     type="submit"
                     className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition"
                   >
-                    Save New PIN
+                    Save Password
                   </button>
                 </div>
               </form>
