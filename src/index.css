@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-f1: 'Titillium Web', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-display: 'Orbitron', 'Rajdhani', sans-serif;
+    --font-tech: 'Rajdhani', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+    
+    /* DriftX Triad Palette: Pure Black, Stark White, Racing Red */
+    --driftx-black: #000000;
+    --driftx-card: #080808;
+    --driftx-card-elevated: #101010;
+    --driftx-red: #E81728;
+    --driftx-crimson: #FF1E27;
+    --driftx-white: #FFFFFF;
+    --driftx-silver: #E5E7EB;
+    --driftx-muted: #888888;
+    --driftx-border: #222222;
+  }
+
+  body {
+    background-color: #000000;
+    color: #FFFFFF;
+    font-family: var(--font-f1);
+    overflow-x: hidden;
+  }
+}
+
+/* Custom Typography & Utility Classes */
+.font-f1 {
+  font-family: 'Titillium Web', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.font-display {
+  font-family: 'Orbitron', sans-serif;
+}
+
+.font-tech {
+  font-family: 'Rajdhani', sans-serif;
+}
+
+.font-mono-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Glow & Neon Effects (Strictly Red, White, Purple Telemetry) */
+.glow-red {
+  box-shadow: 0 0 20px rgba(255, 30, 39, 0.45), inset 0 0 10px rgba(255, 30, 39, 0.15);
+}
+
+.glow-red-strong {
+  box-shadow: 0 0 30px rgba(255, 30, 39, 0.6), inset 0 0 15px rgba(255, 30, 39, 0.25);
+}
+
+.glow-white {
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+}
+
+.glow-purple {
+  box-shadow: 0 0 20px rgba(168, 85, 247, 0.4);
+}
+
+.text-glow-red {
+  text-shadow: 0 0 14px rgba(255, 30, 39, 0.9);
+}
+
+.text-glow-white {
+  text-shadow: 0 0 12px rgba(255, 255, 255, 0.8);
+}
+
+/* Custom Scrollbar (Black & Red) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #000000;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1C1C1C;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 30, 39, 0.3);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #FF1E27;
+}
+
+/* Scanline Effect */
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(1000%); }
+}
+
+.scanline {
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(to right, transparent, rgba(255, 30, 39, 0.4), transparent);
+  animation: scanline 8s linear infinite;
+  pointer-events: none;
+}
