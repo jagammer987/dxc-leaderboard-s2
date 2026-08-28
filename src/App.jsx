@@ -73,9 +73,7 @@ export default function App() {
     return INITIAL_LEADERBOARD;
   });
 
-  const [autoRefreshInterval, setAutoRefreshInterval] = useState(() => {
-    return 10;
-  });
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState(0); // Default off unless user starts it
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState(null);
   const [isMuted, setIsMuted] = useState(false);
@@ -158,7 +156,7 @@ export default function App() {
     }
   }, [selectedTrack, sheetSyncUrl]);
 
-  // 5. Live Google Sheet Polling (Intelligent Merge - Never Revert Local Laps)
+  // 5. Live Google Sheet Polling
   const syncSheetData = useCallback(async (urlToFetch) => {
     const targetUrl = urlToFetch || sheetSyncUrl;
     if (!targetUrl) return;
@@ -186,7 +184,6 @@ export default function App() {
               const localMs = parseLapInput(localLap.lapTime) || localLap.lapMs || Infinity;
               const sheetMs = parseLapInput(sheetLap.lapTime) || sheetLap.lapMs || Infinity;
               
-              // If local lap is faster or newer, keep the local version
               if (localMs <= sheetMs) {
                 mergedMap.set(key, { ...sheetLap, ...localLap });
               }
@@ -275,8 +272,14 @@ export default function App() {
     }, 4000);
   };
 
-  // Record Lap Action (Supports Unlimited Entries & Updates)
+  // Record Lap Action (Instant Update & Screen Jump to Track)
   const handleAddLap = (newLap, isUpdate = false) => {
+    // 1. Instantly switch to the track of the recorded lap so the user immediately sees it
+    if (newLap.trackId && newLap.trackId !== selectedTrack) {
+      setSelectedTrack(newLap.trackId);
+    }
+
+    // 2. Commit to React state and LocalStorage
     setLaps(prev => {
       const cleanPhone = newLap.phone ? newLap.phone.replace(/[^0-9]/g, '') : '';
       const driverName = newLap.driver.toLowerCase().trim();
@@ -308,13 +311,13 @@ export default function App() {
         return updated;
       }
 
-      // Prepend brand new lap
+      // Prepend brand new driver
       return [newLap, ...prev];
     });
 
     showToast(`⏱️ Lap recorded: ${newLap.driver} (${newLap.lapTime})`);
 
-    // Also push to Google Sheet Webhook if active
+    // 3. Push to Google Sheet if webhook configured
     if (sheetSyncUrl) {
       pushLapToGoogleSheet(sheetSyncUrl, newLap);
     }

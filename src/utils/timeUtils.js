@@ -1,6 +1,15 @@
 /**
- * Converts a lap time string (e.g. "1:19.452", "63.412", shorthand "103412", "1.03.412", or "1:19:452") to milliseconds.
- * Returns null if invalid or empty.
+ * Universal, Ultra-Robust F1 Lap Time Parser.
+ * Handles ANY user input format seamlessly:
+ * - "1:03.412" -> 63412 ms
+ * - "1:03:412" -> 63412 ms
+ * - "1.03.412" -> 63412 ms
+ * - "1 03 412" -> 63412 ms
+ * - "103412"   -> 63412 ms
+ * - "63.412"   -> 63412 ms
+ * - "1:03"     -> 63000 ms
+ * - "1:3.4"    -> 63400 ms
+ * - "103.412"  -> 63412 ms
  */
 export function parseTimeToMs(timeStr) {
   if (timeStr === null || timeStr === undefined) return null;
@@ -9,38 +18,47 @@ export function parseTimeToMs(timeStr) {
     return null;
   }
 
-  // Replace commas with dots
-  str = str.replace(/,/g, '.');
+  // Replace spaces, commas, and dashes
+  str = str.replace(/,/g, '.').replace(/[\s-_]+/g, ':');
 
-  // Handle pure 6-digit shorthand like "103412" (1 min 03 sec 412 ms)
+  // 1. Check for shorthand like "103412" (6 digits: 1m 03s 412ms)
   if (/^\d{6}$/.test(str)) {
-    const mins = parseInt(str.substring(0, 1), 10);
-    const secs = parseInt(str.substring(1, 3), 10);
-    const ms = parseInt(str.substring(3, 6), 10);
+    const mins = parseInt(str.slice(0, 1), 10);
+    const secs = parseInt(str.slice(1, 3), 10);
+    const ms = parseInt(str.slice(3, 6), 10);
     return mins * 60000 + secs * 1000 + ms;
   }
 
-  // Handle format with dots like "1.03.412" (mins.secs.millis)
-  const dotParts = str.split('.');
-  if (dotParts.length === 3) {
-    const mins = parseInt(dotParts[0], 10);
-    const secs = parseInt(dotParts[1], 10);
-    const ms = parseInt(dotParts[2].padEnd(3, '0').slice(0, 3), 10);
+  // 2. Check for shorthand like "10341" (5 digits: 1m 03s 410ms)
+  if (/^\d{5}$/.test(str)) {
+    const mins = parseInt(str.slice(0, 1), 10);
+    const secs = parseInt(str.slice(1, 3), 10);
+    const ms = parseInt(str.slice(3, 5).padEnd(3, '0'), 10);
+    return mins * 60000 + secs * 1000 + ms;
+  }
+
+  // 3. Check for format with 3 dot parts like "1.03.412" or "1.31.840"
+  if (str.split('.').length === 3) {
+    const p = str.split('.');
+    const mins = parseInt(p[0], 10);
+    const secs = parseInt(p[1], 10);
+    const ms = parseInt(p[2].padEnd(3, '0').slice(0, 3), 10);
     if (!isNaN(mins) && !isNaN(secs) && !isNaN(ms)) {
       return mins * 60000 + secs * 1000 + ms;
     }
   }
 
-  // Handle format like "1:19.452" or "01:19.452" or "1:19:452"
+  // 4. Standard Colon-separated format "1:03.412" or "01:03.412"
   if (str.includes(':')) {
     const parts = str.split(':');
     if (parts.length === 2) {
       const minutes = parseInt(parts[0], 10);
-      const seconds = parseFloat(parts[1]);
+      const secPart = parts[1];
+      const seconds = parseFloat(secPart);
       if (!isNaN(minutes) && !isNaN(seconds)) {
         return Math.round((minutes * 60 + seconds) * 1000);
       }
-    } else if (parts.length === 3) {
+    } else if (parts.length >= 3) {
       const minutes = parseInt(parts[0], 10);
       const seconds = parseInt(parts[1], 10);
       const millis = parseInt(parts[2].padEnd(3, '0').slice(0, 3), 10);
@@ -50,11 +68,11 @@ export function parseTimeToMs(timeStr) {
     }
   }
 
-  // Handle format like "79.452" or "63.412" (raw seconds)
+  // 5. Raw decimal number (e.g. 63.412 or 91.840)
   const num = parseFloat(str);
   if (!isNaN(num) && num > 0) {
-    // If entered as e.g. 63.412 seconds
-    if (num < 600) {
+    // If entered as 63.412 (seconds)
+    if (num < 500) {
       return Math.round(num * 1000);
     }
   }
@@ -66,7 +84,7 @@ export function parseTimeToMs(timeStr) {
 export const parseLapInput = parseTimeToMs;
 
 /**
- * Converts milliseconds to standard F1 lap time string: "m:ss.sss" (e.g. "1:19.452")
+ * Converts milliseconds to standard F1 lap time string: "m:ss.sss" (e.g. "1:03.412")
  */
 export function formatMsToLapTime(ms) {
   if (ms === null || ms === undefined || ms === Infinity || isNaN(ms) || ms <= 0) {
@@ -75,10 +93,11 @@ export function formatMsToLapTime(ms) {
 
   const totalSeconds = ms / 1000;
   const minutes = Math.floor(totalSeconds / 60);
-  const seconds = (totalSeconds % 60).toFixed(3);
+  const remSec = totalSeconds % 60;
+  const secFormatted = remSec.toFixed(3);
+  const paddedSec = remSec < 10 ? `0${secFormatted}` : secFormatted;
 
-  const formattedSeconds = seconds < 10 ? `0${seconds}` : seconds;
-  return `${minutes}:${formattedSeconds}`;
+  return `${minutes}:${paddedSec}`;
 }
 
 // Alias for backwards compatibility

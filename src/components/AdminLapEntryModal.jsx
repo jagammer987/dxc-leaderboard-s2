@@ -5,14 +5,16 @@ import {
   Timer, 
   Phone, 
   ShieldAlert, 
-  UserCheck
+  UserCheck,
+  CheckCircle2,
+  Sliders,
+  Type
 } from 'lucide-react';
 import { 
   TRACKS, 
   TEAMS, 
   TYRE_COMPOUNDS, 
-  RIGS, 
-  ASSISTS_LEVELS 
+  RIGS 
 } from '../utils/constants';
 import { parseLapInput, formatLapTime } from '../utils/timeUtils';
 import { soundEffects } from '../utils/soundFx';
@@ -28,20 +30,46 @@ export default function AdminLapEntryModal({
   const [phone, setPhone] = useState('');
   const [trackId, setTrackId] = useState(defaultTrackId);
   const [team, setTeam] = useState(TEAMS[0].name);
-  const [rawLapTime, setRawLapTime] = useState('');
-  const [s1, setS1] = useState('');
-  const [s2, setS2] = useState('');
-  const [s3, setS3] = useState('');
+
+  // Time Entry Mode: 'split' (3 boxes: Min : Sec . Ms) or 'single' (Text box)
+  const [inputMode, setInputMode] = useState('split');
+  
+  // Split time state
+  const [mins, setMins] = useState('1');
+  const [secs, setSecs] = useState('03');
+  const [millis, setMillis] = useState('400');
+
+  // Single text state
+  const [singleText, setSingleText] = useState('1:03.400');
+
   const [tyre, setTyre] = useState('SOFT');
   const [rig, setRig] = useState('Rig 1');
-  const [assists, setAssists] = useState('NONE');
-  const [topSpeed, setTopSpeed] = useState('324.5');
-  const [notes, setNotes] = useState('');
   const [validLap, setValidLap] = useState(true);
   const [error, setError] = useState('');
   const [duplicateInfo, setDuplicateInfo] = useState(null);
 
-  const currentTrack = TRACKS.find(t => t.id === trackId) || TRACKS[0];
+  // Update trackId if defaultTrackId changes
+  useEffect(() => {
+    if (defaultTrackId) {
+      setTrackId(defaultTrackId);
+    }
+  }, [defaultTrackId]);
+
+  // Calculate parsed time & preview in real-time
+  const calculatedMs = React.useMemo(() => {
+    if (inputMode === 'split') {
+      const m = parseInt(mins || '0', 10);
+      const s = parseInt(secs || '0', 10);
+      const ms = parseInt((millis || '0').padEnd(3, '0').slice(0, 3), 10);
+      if (!isNaN(m) && !isNaN(s) && !isNaN(ms)) {
+        const total = m * 60000 + s * 1000 + ms;
+        return total > 0 ? total : null;
+      }
+      return null;
+    } else {
+      return parseLapInput(singleText);
+    }
+  }, [inputMode, mins, secs, millis, singleText]);
 
   // Auto-detect existing driver by mobile number or name for this stage
   useEffect(() => {
@@ -63,9 +91,6 @@ export default function AdminLapEntryModal({
       if (!driver && match.driver) {
         setDriver(match.driver);
       }
-      if (!team && match.team) {
-        setTeam(match.team);
-      }
     } else {
       setDuplicateInfo(null);
     }
@@ -80,19 +105,13 @@ export default function AdminLapEntryModal({
       return;
     }
 
-    if (!rawLapTime.trim()) {
-      setError('Please enter a lap time (e.g. 1:03.412 or 63.412 or 103412)');
-      return;
-    }
-
-    const parsedMs = parseLapInput(rawLapTime);
-    if (!parsedMs || isNaN(parsedMs) || parsedMs <= 0) {
-      setError('Invalid Lap Time format! Enter e.g. 1:03.412 or 63.412 or 103412');
+    if (!calculatedMs || isNaN(calculatedMs) || calculatedMs <= 0) {
+      setError('Please enter a valid lap time (e.g. 1 min 03 sec 412 ms)');
       return;
     }
 
     const cleanPhone = phone.replace(/[^0-9]/g, '').trim();
-    const formattedTime = formatLapTime(parsedMs);
+    const formattedTime = formatLapTime(calculatedMs);
 
     const newLap = {
       id: duplicateInfo ? duplicateInfo.id : `lap-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
@@ -101,20 +120,20 @@ export default function AdminLapEntryModal({
       trackId,
       team,
       lapTime: formattedTime,
-      lapMs: parsedMs,
-      s1: s1.trim(),
-      s2: s2.trim(),
-      s3: s3.trim(),
+      lapMs: calculatedMs,
+      s1: '',
+      s2: '',
+      s3: '',
       tyre,
       rig,
-      assists,
-      topSpeed: parseFloat(topSpeed) || 320.0,
+      assists: 'NONE',
+      topSpeed: 320.0,
       validLap,
       timestamp: new Date().toISOString().slice(0, 16).replace('T', ' '),
-      notes: notes.trim()
+      notes: ''
     };
 
-    if (parsedMs < currentP1LapMs && validLap) {
+    if (calculatedMs < currentP1LapMs && validLap) {
       soundEffects.playP1VictoryFanfare();
     } else {
       soundEffects.playRadioChime();
@@ -125,8 +144,8 @@ export default function AdminLapEntryModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto font-tech">
-      <div className="relative w-full max-w-2xl bg-[#080808] border border-red-600/50 rounded-2xl p-6 shadow-2xl my-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md overflow-y-auto font-tech">
+      <div className="relative w-full max-w-lg bg-[#080808] border-2 border-red-600/70 rounded-2xl p-6 shadow-2xl my-8">
         
         {/* Modal Header */}
         <div className="flex items-center justify-between pb-4 border-b border-neutral-900">
@@ -137,7 +156,7 @@ export default function AdminLapEntryModal({
                 LOG HOTLAP // DRIFT<span className="text-red-600">x</span>COMMUNE
               </h2>
               <p className="text-xs font-tech text-neutral-400">
-                MARSHAL TIMING & ANTI-DUPLICATE SYSTEM
+                FAST MARSHAL ENTRY
               </p>
             </div>
           </div>
@@ -153,197 +172,204 @@ export default function AdminLapEntryModal({
           </button>
         </div>
 
-        {/* Duplicate Entry Warning / Upgrade Helper */}
+        {/* Duplicate Driver PB Notice */}
         {duplicateInfo && (
-          <div className="mt-4 p-3.5 bg-red-950/40 border border-red-600/70 rounded-xl text-xs font-tech text-white flex items-start space-x-2.5 shadow-lg">
+          <div className="mt-4 p-3 bg-red-950/50 border border-red-600/70 rounded-xl text-xs font-tech text-white flex items-start space-x-2">
             <UserCheck className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-            <div className="flex-1">
+            <div>
               <span className="font-bold text-red-400 block uppercase">
-                Existing Driver Detected for this Stage:
+                Existing Driver: {duplicateInfo.driver}
               </span>
-              <p className="text-neutral-300 mt-0.5">
-                <span className="font-bold text-white">{duplicateInfo.driver}</span> currently holds a best lap of{' '}
-                <span className="text-red-400 font-mono font-bold">{duplicateInfo.lapTime}</span>.
-              </p>
-              <p className="text-[11px] text-neutral-400 mt-1">
-                ⚡ Submitting this entry will <span className="text-white font-bold">update their personal best</span> instead of creating a duplicate row!
-              </p>
+              <span className="text-neutral-300">
+                Current Best: <strong className="text-white font-mono">{duplicateInfo.lapTime}</strong>. Submitting will update their Personal Best!
+              </span>
             </div>
           </div>
         )}
 
         {/* Error Alert */}
         {error && (
-          <div className="mt-4 p-3 bg-red-950/60 border border-red-600/60 text-red-300 rounded-xl text-xs flex items-center space-x-2 font-tech">
+          <div className="mt-4 p-3 bg-red-950 border border-red-600 text-red-200 rounded-xl text-xs flex items-center space-x-2">
             <ShieldAlert className="w-4 h-4 shrink-0 text-red-400" />
-            <span>{error}</span>
+            <span className="font-bold">{error}</span>
           </div>
         )}
 
         {/* Entry Form */}
-        <form onSubmit={handleSubmit} className="mt-4 space-y-4 font-tech">
+        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           
-          {/* Row 1: Stage & Driver Name */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-bold text-neutral-300 block mb-1">
-                Tournament Stage / Track
-              </label>
-              <select
-                value={trackId}
-                onChange={(e) => setTrackId(e.target.value)}
-                className="w-full bg-[#000000] border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-red-600"
-              >
-                {TRACKS.map(t => (
-                  <option key={t.id} value={t.id}>
-                    {t.flag} {t.stageBadge}: {t.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="text-xs font-bold text-neutral-300 block mb-1">
-                Driver Name *
-              </label>
-              <input
-                type="text"
-                required
-                placeholder="e.g. Aarav Sharma"
-                value={driver}
-                onChange={(e) => setDriver(e.target.value)}
-                className="w-full bg-[#000000] border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-red-600"
-              />
-            </div>
-          </div>
-
-          {/* Row 2: Mobile Number (Admin-Only) & Team */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-bold text-neutral-300 flex items-center">
-                  <Phone className="w-3.5 h-3.5 mr-1 text-red-500" />
-                  Mobile Number (Admin-Only)
-                </label>
-                <span className="text-[10px] text-red-500 font-mono font-bold">
-                  🔒 Hidden from Public
-                </span>
-              </div>
-              <input
-                type="tel"
-                placeholder="e.g. 9876543210 (Prevents Double Entries)"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="w-full bg-[#000000] border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono placeholder-neutral-600 focus:outline-none focus:border-red-600"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-bold text-neutral-300 block mb-1">
-                F1 Team / Livery
-              </label>
-              <select
-                value={team}
-                onChange={(e) => setTeam(e.target.value)}
-                className="w-full bg-[#000000] border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-red-600"
-              >
-                {TEAMS.map(t => (
-                  <option key={t.name} value={t.name}>{t.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Row 3: Primary Lap Time Input */}
-          <div className="bg-[#000000] border border-neutral-800 rounded-xl p-4">
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-black text-red-500 uppercase tracking-wider flex items-center">
-                <Timer className="w-3.5 h-3.5 mr-1" />
-                Lap Time * (e.g. 1:03.412 or 63.412 or 103412)
-              </label>
-              <span className="text-[11px] text-neutral-400 font-mono">
-                Auto-formats precision
-              </span>
-            </div>
-
-            <input
-              type="text"
-              required
-              placeholder="e.g. 1:03.412"
-              value={rawLapTime}
-              onChange={(e) => setRawLapTime(e.target.value)}
-              className="w-full bg-[#080808] border border-neutral-700 rounded-xl px-4 py-3 text-lg text-white font-mono-num font-bold placeholder-neutral-600 focus:outline-none focus:border-red-600"
-            />
-          </div>
-
-          {/* Row 4: Micro Sectors */}
+          {/* 1. Track Stage */}
           <div>
-            <span className="text-xs font-bold text-neutral-300 block mb-1">
-              Sector Breakdown (Optional)
-            </span>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <input
-                  type="text"
-                  placeholder="S1 (e.g. 16.210)"
-                  value={s1}
-                  onChange={(e) => setS1(e.target.value)}
-                  className="w-full bg-[#000000] border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white font-mono placeholder-neutral-600 focus:outline-none focus:border-red-600"
-                />
-              </div>
-              <div>
-                <input
-                  type="text"
-                  placeholder="S2 (e.g. 28.650)"
-                  value={s2}
-                  onChange={(e) => setS2(e.target.value)}
-                  className="w-full bg-[#000000] border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white font-mono placeholder-neutral-600 focus:outline-none focus:border-red-600"
-                />
-              </div>
-              <div>
-                <input
-                  type="text"
-                  placeholder="S3 (e.g. 18.552)"
-                  value={s3}
-                  onChange={(e) => setS3(e.target.value)}
-                  className="w-full bg-[#000000] border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white font-mono placeholder-neutral-600 focus:outline-none focus:border-red-600"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Row 5: Tyre & Sim Rig */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs font-bold text-neutral-300 block mb-1">
-                Tyre Compound
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {TYRE_COMPOUNDS.slice(0, 3).map((t) => (
+            <label className="text-xs font-bold text-neutral-300 block mb-1">
+              Select Tournament Stage / Track
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {TRACKS.map(t => {
+                const isSel = t.id === trackId;
+                return (
                   <button
-                    type="button"
                     key={t.id}
-                    onClick={() => setTyre(t.id)}
-                    className={`py-2 px-2 rounded-xl text-xs font-bold border transition ${
-                      tyre === t.id
-                        ? 'bg-red-600 text-white border-red-500 shadow-md shadow-red-600/30'
+                    type="button"
+                    onClick={() => setTrackId(t.id)}
+                    className={`py-2 px-2 rounded-xl text-xs font-bold border text-center transition ${
+                      isSel 
+                        ? 'bg-red-600 text-white border-red-500 shadow-md shadow-red-600/40' 
                         : 'bg-[#000000] text-neutral-400 border-neutral-800 hover:border-neutral-700'
                     }`}
                   >
-                    {t.badge} {t.label}
+                    <span className="block text-sm">{t.flag}</span>
+                    <span className="text-[10px] uppercase block truncate">{t.stageBadge}</span>
                   </button>
-                ))}
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 2. Driver Name */}
+          <div>
+            <label className="text-xs font-bold text-white block mb-1">
+              Driver Name *
+            </label>
+            <input
+              type="text"
+              required
+              autoFocus
+              placeholder="e.g. Aarav Sharma"
+              value={driver}
+              onChange={(e) => setDriver(e.target.value)}
+              className="w-full bg-[#000000] border-2 border-neutral-700 focus:border-red-600 rounded-xl px-4 py-2.5 text-sm text-white font-bold placeholder-neutral-600 focus:outline-none"
+            />
+          </div>
+
+          {/* 3. ULTRA-SIMPLE LAP TIME ENTRY */}
+          <div className="bg-[#000000] border-2 border-red-600/60 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-black text-red-500 uppercase tracking-wider flex items-center">
+                <Timer className="w-4 h-4 mr-1.5" />
+                Lap Time *
+              </label>
+
+              {/* Toggle Input Mode */}
+              <div className="flex items-center bg-[#0D0D0D] border border-neutral-800 rounded-lg p-0.5 text-[10px]">
+                <button
+                  type="button"
+                  onClick={() => setInputMode('split')}
+                  className={`px-2 py-0.5 rounded font-bold transition flex items-center space-x-1 ${
+                    inputMode === 'split' ? 'bg-red-600 text-white' : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  <Sliders className="w-3 h-3" />
+                  <span>3 Boxes (Min/Sec/Ms)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInputMode('single')}
+                  className={`px-2 py-0.5 rounded font-bold transition flex items-center space-x-1 ${
+                    inputMode === 'single' ? 'bg-red-600 text-white' : 'text-neutral-400 hover:text-white'
+                  }`}
+                >
+                  <Type className="w-3 h-3" />
+                  <span>Single Box</span>
+                </button>
               </div>
+            </div>
+
+            {/* Mode A: 3 Simple Number Boxes (Min : Sec . Ms) */}
+            {inputMode === 'split' ? (
+              <div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <span className="text-[10px] text-neutral-400 block mb-1 font-bold">MINUTES</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="5"
+                      required
+                      value={mins}
+                      onChange={(e) => setMins(e.target.value)}
+                      className="w-full bg-[#080808] border-2 border-neutral-700 focus:border-red-600 rounded-xl py-2.5 text-center text-xl text-white font-mono-num font-bold focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] text-neutral-400 block mb-1 font-bold">SECONDS</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="59"
+                      required
+                      value={secs}
+                      onChange={(e) => setSecs(e.target.value)}
+                      className="w-full bg-[#080808] border-2 border-neutral-700 focus:border-red-600 rounded-xl py-2.5 text-center text-xl text-white font-mono-num font-bold focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] text-neutral-400 block mb-1 font-bold">MILLIS (.ms)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="999"
+                      required
+                      value={millis}
+                      onChange={(e) => setMillis(e.target.value)}
+                      className="w-full bg-[#080808] border-2 border-neutral-700 focus:border-red-600 rounded-xl py-2.5 text-center text-xl text-white font-mono-num font-bold focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Live Formatted Output */}
+                <div className="mt-2.5 pt-2 border-t border-neutral-900 flex items-center justify-between text-xs font-mono">
+                  <span className="text-neutral-400">Result Lap Time:</span>
+                  <span className="text-red-400 font-black text-sm">
+                    {formatLapTime(calculatedMs)}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              /* Mode B: Single Fast Input */
+              <div>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. 1:03.412 or 63.412 or 103412"
+                  value={singleText}
+                  onChange={(e) => setSingleText(e.target.value)}
+                  className="w-full bg-[#080808] border-2 border-neutral-700 focus:border-red-600 rounded-xl px-4 py-2.5 text-base text-white font-mono-num font-bold focus:outline-none"
+                />
+                <div className="mt-2 flex items-center justify-between text-xs font-mono">
+                  <span className="text-neutral-400">Parsed Preview:</span>
+                  <span className={calculatedMs ? "text-emerald-400 font-bold" : "text-red-500 font-bold"}>
+                    {calculatedMs ? `${formatLapTime(calculatedMs)} ✅` : 'Invalid format ❌'}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 4. Optional: Mobile Number & Sim Rig */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-bold text-neutral-300 block mb-1">
+                Mobile No. <span className="text-neutral-500 font-normal">(Optional)</span>
+              </label>
+              <input
+                type="tel"
+                placeholder="e.g. 9876543210"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="w-full bg-[#000000] border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white font-mono placeholder-neutral-600 focus:outline-none focus:border-red-600"
+              />
             </div>
 
             <div>
               <label className="text-xs font-bold text-neutral-300 block mb-1">
-                Simulator Rig
+                Sim Rig
               </label>
               <select
                 value={rig}
                 onChange={(e) => setRig(e.target.value)}
-                className="w-full bg-[#000000] border border-neutral-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-red-600"
+                className="w-full bg-[#000000] border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-600"
               >
                 {RIGS.map(r => (
                   <option key={r.id} value={r.id}>{r.name}</option>
@@ -352,14 +378,9 @@ export default function AdminLapEntryModal({
             </div>
           </div>
 
-          {/* Row 6: Lap Validity */}
-          <div className="flex items-center justify-between p-3 bg-[#000000] border border-neutral-800 rounded-xl">
-            <div>
-              <span className="text-xs font-bold text-white block">Lap Track Limits</span>
-              <span className="text-[11px] text-neutral-400">
-                Check if lap adhered to track limits regulations
-              </span>
-            </div>
+          {/* 5. Lap Track Limits Toggle */}
+          <div className="flex items-center justify-between p-2.5 bg-[#000000] border border-neutral-800 rounded-xl">
+            <span className="text-xs text-neutral-300 font-bold">Track Limits:</span>
             <label className="flex items-center space-x-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -367,25 +388,25 @@ export default function AdminLapEntryModal({
                 onChange={(e) => setValidLap(e.target.checked)}
                 className="w-4 h-4 rounded text-red-600 focus:ring-red-500 bg-neutral-900 border-neutral-700"
               />
-              <span className={`text-xs font-bold ${validLap ? 'text-white' : 'text-red-500'}`}>
+              <span className={`text-xs font-bold ${validLap ? 'text-emerald-400' : 'text-red-500'}`}>
                 {validLap ? 'VALID LAP' : 'INVALIDATED'}
               </span>
             </label>
           </div>
 
-          {/* Form Actions */}
-          <div className="pt-3 border-t border-neutral-900 flex justify-end space-x-3">
+          {/* Action Buttons */}
+          <div className="pt-2 flex justify-end space-x-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 bg-[#141414] hover:bg-neutral-800 text-neutral-300 rounded-xl text-xs font-bold transition"
+              className="px-4 py-2 bg-[#141414] hover:bg-neutral-800 text-neutral-300 rounded-xl text-xs font-bold transition"
             >
               Cancel
             </button>
 
             <button
               type="submit"
-              className="flex items-center space-x-1.5 px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black font-display tracking-wider transition shadow-lg shadow-red-600/40 active:scale-95 cursor-pointer"
+              className="flex items-center space-x-1.5 px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black font-display tracking-wider transition shadow-lg shadow-red-600/40 active:scale-95"
             >
               <Plus className="w-4 h-4" />
               <span>{duplicateInfo ? 'UPDATE DRIVER PB' : 'RECORD LAP TIME'}</span>
