@@ -1,11 +1,16 @@
 /**
- * Converts a lap time string (e.g. "1:19.452" or "79.452" or shorthand "103412" or "1:19:452") to milliseconds.
- * Returns Infinity if invalid or empty.
+ * Converts a lap time string (e.g. "1:19.452", "63.412", shorthand "103412", "1.03.412", or "1:19:452") to milliseconds.
+ * Returns null if invalid or empty.
  */
 export function parseTimeToMs(timeStr) {
-  if (timeStr === null || timeStr === undefined) return Infinity;
+  if (timeStr === null || timeStr === undefined) return null;
   let str = String(timeStr).trim();
-  if (!str || str.toLowerCase() === 'dnf' || str.toLowerCase() === 'invalid') return Infinity;
+  if (!str || str.toLowerCase() === 'dnf' || str.toLowerCase() === 'invalid' || str === '--:--.---') {
+    return null;
+  }
+
+  // Replace commas with dots
+  str = str.replace(/,/g, '.');
 
   // Handle pure 6-digit shorthand like "103412" (1 min 03 sec 412 ms)
   if (/^\d{6}$/.test(str)) {
@@ -15,30 +20,46 @@ export function parseTimeToMs(timeStr) {
     return mins * 60000 + secs * 1000 + ms;
   }
 
+  // Handle format with dots like "1.03.412" (mins.secs.millis)
+  const dotParts = str.split('.');
+  if (dotParts.length === 3) {
+    const mins = parseInt(dotParts[0], 10);
+    const secs = parseInt(dotParts[1], 10);
+    const ms = parseInt(dotParts[2].padEnd(3, '0').slice(0, 3), 10);
+    if (!isNaN(mins) && !isNaN(secs) && !isNaN(ms)) {
+      return mins * 60000 + secs * 1000 + ms;
+    }
+  }
+
   // Handle format like "1:19.452" or "01:19.452" or "1:19:452"
   if (str.includes(':')) {
     const parts = str.split(':');
     if (parts.length === 2) {
       const minutes = parseInt(parts[0], 10);
-      const seconds = parseFloat(parts[1].replace(',', '.'));
-      if (isNaN(minutes) || isNaN(seconds)) return Infinity;
-      return Math.round((minutes * 60 + seconds) * 1000);
+      const seconds = parseFloat(parts[1]);
+      if (!isNaN(minutes) && !isNaN(seconds)) {
+        return Math.round((minutes * 60 + seconds) * 1000);
+      }
     } else if (parts.length === 3) {
       const minutes = parseInt(parts[0], 10);
       const seconds = parseInt(parts[1], 10);
-      const millis = parseInt(parts[2], 10);
-      if (isNaN(minutes) || isNaN(seconds) || isNaN(millis)) return Infinity;
-      return minutes * 60000 + seconds * 1000 + millis;
+      const millis = parseInt(parts[2].padEnd(3, '0').slice(0, 3), 10);
+      if (!isNaN(minutes) && !isNaN(seconds) && !isNaN(millis)) {
+        return minutes * 60000 + seconds * 1000 + millis;
+      }
     }
   }
 
-  // Handle format like "79.452" (raw seconds)
-  const num = parseFloat(str.replace(',', '.'));
+  // Handle format like "79.452" or "63.412" (raw seconds)
+  const num = parseFloat(str);
   if (!isNaN(num) && num > 0) {
-    return Math.round(num * 1000);
+    // If entered as e.g. 63.412 seconds
+    if (num < 600) {
+      return Math.round(num * 1000);
+    }
   }
 
-  return Infinity;
+  return null;
 }
 
 // Alias for backwards compatibility
@@ -78,7 +99,8 @@ export function formatSectorMs(ms) {
  */
 export function parseSectorToMs(sectorStr) {
   if (!sectorStr) return Infinity;
-  return parseTimeToMs(sectorStr);
+  const ms = parseTimeToMs(sectorStr);
+  return ms !== null ? ms : Infinity;
 }
 
 /**
@@ -86,7 +108,7 @@ export function parseSectorToMs(sectorStr) {
  */
 export function formatDelta(currentMs, leaderMs) {
   if (currentMs === leaderMs) return 'LEADER';
-  if (currentMs === Infinity || leaderMs === Infinity) return '+--.---';
+  if (!currentMs || !leaderMs || currentMs === Infinity || leaderMs === Infinity) return '+--.---';
 
   const diffMs = currentMs - leaderMs;
   const diffSec = (diffMs / 1000).toFixed(3);
@@ -143,7 +165,8 @@ export function analyzeLeaderboard(laps) {
 
   // Parse each lap
   const parsed = laps.map(lap => {
-    const lapMs = parseTimeToMs(lap.lapTime);
+    const rawMs = parseTimeToMs(lap.lapTime);
+    const lapMs = (rawMs !== null && rawMs > 0) ? rawMs : (lap.lapMs || Infinity);
     const s1Ms = parseSectorToMs(lap.s1);
     const s2Ms = parseSectorToMs(lap.s2);
     const s3Ms = parseSectorToMs(lap.s3);

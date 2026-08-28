@@ -74,7 +74,7 @@ export default function App() {
   });
 
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(() => {
-    return 10; // Default: 10 seconds live cloud polling
+    return 10;
   });
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState(null);
@@ -157,7 +157,7 @@ export default function App() {
     }
   }, [selectedTrack, sheetSyncUrl]);
 
-  // 5. Live Google Sheet Polling (2-Way Fetch)
+  // 5. Live Google Sheet Polling (Intelligent Merge)
   const syncSheetData = useCallback(async (urlToFetch) => {
     const targetUrl = urlToFetch || sheetSyncUrl;
     if (!targetUrl) return;
@@ -166,11 +166,25 @@ export default function App() {
       setIsSyncing(true);
       const fetchedLaps = await fetchLiveSheetData(targetUrl, selectedTrack);
       if (fetchedLaps && fetchedLaps.length > 0) {
-        setLaps(fetchedLaps);
+        // Merge fetched sheet laps with local laps
+        setLaps(prev => {
+          const merged = [...fetchedLaps];
+          // Keep any local laps from other tracks that weren't in the fetched sheet
+          prev.forEach(pLap => {
+            const exists = merged.some(m => 
+              m.trackId === pLap.trackId && 
+              m.driver.toLowerCase().trim() === pLap.driver.toLowerCase().trim()
+            );
+            if (!exists) {
+              merged.push(pLap);
+            }
+          });
+          return merged;
+        });
         setLastSyncTime(new Date().toLocaleTimeString());
       }
     } catch (err) {
-      console.warn('Sheet sync fetch warning:', err.message);
+      console.warn('Sheet sync warning:', err.message);
     } finally {
       setIsSyncing(false);
     }
@@ -239,16 +253,9 @@ export default function App() {
     return trackLeaderboard.find(l => l.id === pinnedDriverId) || null;
   }, [trackLeaderboard, pinnedDriverId]);
 
-  // Lap Actions with Anti-Duplicate & 2-Way Google Sheet Push
+  // Record Lap Action
   const handleAddLap = (newLap, isUpdate = false) => {
-    if (!isAdmin) return;
-
-    // 1. Push to Google Sheet in background if Webhook is configured
-    if (sheetSyncUrl) {
-      pushLapToGoogleSheet(sheetSyncUrl, newLap);
-    }
-
-    // 2. Update local state
+    // 1. Immediately update React state and LocalStorage
     setLaps(prev => {
       const cleanPhone = newLap.phone ? newLap.phone.replace(/[^0-9]/g, '') : '';
       
@@ -261,8 +268,8 @@ export default function App() {
 
       if (existingIndex !== -1) {
         const existingLap = prev[existingIndex];
-        const existingMs = parseLapInput(existingLap.lapTime);
-        const newMs = parseLapInput(newLap.lapTime);
+        const existingMs = parseLapInput(existingLap.lapTime) || existingLap.lapMs || Infinity;
+        const newMs = parseLapInput(newLap.lapTime) || newLap.lapMs || Infinity;
 
         const updated = [...prev];
         updated[existingIndex] = {
@@ -270,6 +277,7 @@ export default function App() {
           ...newLap,
           id: existingLap.id,
           lapTime: (newLap.validLap && (newMs <= existingMs || !existingLap.validLap)) ? newLap.lapTime : existingLap.lapTime,
+          lapMs: (newLap.validLap && (newMs <= existingMs || !existingLap.validLap)) ? newMs : existingMs,
           s1: newLap.s1 || existingLap.s1,
           s2: newLap.s2 || existingLap.s2,
           s3: newLap.s3 || existingLap.s3,
@@ -279,6 +287,11 @@ export default function App() {
 
       return [newLap, ...prev];
     });
+
+    // 2. Also push to Google Sheet Webhook if active
+    if (sheetSyncUrl) {
+      pushLapToGoogleSheet(sheetSyncUrl, newLap);
+    }
   };
 
   const handleDeleteLap = (lapId) => {
@@ -311,8 +324,8 @@ export default function App() {
         );
 
         if (idx !== -1) {
-          const oldMs = parseLapInput(merged[idx].lapTime);
-          const newMs = parseLapInput(newLap.lapTime);
+          const oldMs = parseLapInput(merged[idx].lapTime) || merged[idx].lapMs || Infinity;
+          const newMs = parseLapInput(newLap.lapTime) || newLap.lapMs || Infinity;
           if (newMs <= oldMs) {
             merged[idx] = newLap;
           }

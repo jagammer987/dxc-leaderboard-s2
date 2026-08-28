@@ -5,10 +5,7 @@ import {
   Timer, 
   Phone, 
   ShieldAlert, 
-  Sparkles, 
-  UserCheck, 
-  CheckCircle2,
-  RefreshCw 
+  UserCheck
 } from 'lucide-react';
 import { 
   TRACKS, 
@@ -83,14 +80,18 @@ export default function AdminLapEntryModal({
       return;
     }
 
-    const cleanPhone = phone.replace(/[^0-9]/g, '').trim();
-
-    const parsedMs = parseLapInput(rawLapTime);
-    if (!parsedMs) {
-      setError('Invalid Lap Time! Supported formats: 1:03.412, 63.412, or shorthand 103412');
+    if (!rawLapTime.trim()) {
+      setError('Please enter a lap time (e.g. 1:03.412 or 63.412 or 103412)');
       return;
     }
 
+    const parsedMs = parseLapInput(rawLapTime);
+    if (!parsedMs || isNaN(parsedMs) || parsedMs <= 0) {
+      setError('Invalid Lap Time format! Enter e.g. 1:03.412 or 63.412 or 103412');
+      return;
+    }
+
+    const cleanPhone = phone.replace(/[^0-9]/g, '').trim();
     const formattedTime = formatLapTime(parsedMs);
 
     const newLap = {
@@ -124,7 +125,7 @@ export default function AdminLapEntryModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto font-tech">
       <div className="relative w-full max-w-2xl bg-[#080808] border border-red-600/50 rounded-2xl p-6 shadow-2xl my-8">
         
         {/* Modal Header */}
@@ -136,7 +137,7 @@ export default function AdminLapEntryModal({
                 LOG HOTLAP // DRIFT<span className="text-red-600">x</span>COMMUNE
               </h2>
               <p className="text-xs font-tech text-neutral-400">
-                MARSHAL RAPID TIMING & ANTI-DUPLICATE SYSTEM
+                MARSHAL TIMING & ANTI-DUPLICATE SYSTEM
               </p>
             </div>
           </div>
@@ -258,17 +259,17 @@ export default function AdminLapEntryModal({
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-black text-red-500 uppercase tracking-wider flex items-center">
                 <Timer className="w-3.5 h-3.5 mr-1" />
-                Lap Time * (High Precision)
+                Lap Time * (e.g. 1:03.412 or 63.412 or 103412)
               </label>
               <span className="text-[11px] text-neutral-400 font-mono">
-                Shorthand format: 103412 ➔ 1:03.412
+                Auto-formats precision
               </span>
             </div>
 
             <input
               type="text"
               required
-              placeholder="e.g. 1:03.412 or 63.412 or 103412"
+              placeholder="e.g. 1:03.412"
               value={rawLapTime}
               onChange={(e) => setRawLapTime(e.target.value)}
               className="w-full bg-[#080808] border border-neutral-700 rounded-xl px-4 py-3 text-lg text-white font-mono-num font-bold placeholder-neutral-600 focus:outline-none focus:border-red-600"
@@ -278,7 +279,7 @@ export default function AdminLapEntryModal({
           {/* Row 4: Micro Sectors */}
           <div>
             <span className="text-xs font-bold text-neutral-300 block mb-1">
-              Sector Breakdown (Optional, for red session-best sectors)
+              Sector Breakdown (Optional)
             </span>
             <div className="grid grid-cols-3 gap-3">
               <div>
@@ -384,7 +385,7 @@ export default function AdminLapEntryModal({
 
             <button
               type="submit"
-              className="flex items-center space-x-1.5 px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black font-display tracking-wider transition shadow-lg shadow-red-600/40 active:scale-95"
+              className="flex items-center space-x-1.5 px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black font-display tracking-wider transition shadow-lg shadow-red-600/40 active:scale-95 cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>{duplicateInfo ? 'UPDATE DRIVER PB' : 'RECORD LAP TIME'}</span>
