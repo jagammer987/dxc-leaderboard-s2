@@ -73,7 +73,7 @@ export default function App() {
     return INITIAL_LEADERBOARD;
   });
 
-  const [autoRefreshInterval, setAutoRefreshInterval] = useState(0); // Default off unless user starts it
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState(0); // Off by default to avoid accidental overwrites
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState(null);
   const [isMuted, setIsMuted] = useState(false);
@@ -156,7 +156,7 @@ export default function App() {
     }
   }, [selectedTrack, sheetSyncUrl]);
 
-  // 5. Live Google Sheet Polling
+  // 5. Live Google Sheet Polling (Never removes local laps)
   const syncSheetData = useCallback(async (urlToFetch) => {
     const targetUrl = urlToFetch || sheetSyncUrl;
     if (!targetUrl) return;
@@ -166,31 +166,27 @@ export default function App() {
       const fetchedLaps = await fetchLiveSheetData(targetUrl, selectedTrack);
       if (fetchedLaps && fetchedLaps.length > 0) {
         setLaps(prev => {
-          const mergedMap = new Map();
+          const localMap = new Map();
 
-          // A. Insert fetched sheet laps
-          fetchedLaps.forEach(lap => {
-            const key = `${lap.trackId}_${lap.driver.toLowerCase().trim()}`;
-            mergedMap.set(key, lap);
+          // 1. Keep ALL local laps as source of truth
+          prev.forEach(l => {
+            const key = `${l.trackId}_${l.driver.toLowerCase().trim()}`;
+            localMap.set(key, l);
           });
 
-          // B. Merge with local laps (preserve faster times & local entries)
-          prev.forEach(localLap => {
-            const key = `${localLap.trackId}_${localLap.driver.toLowerCase().trim()}`;
-            if (!mergedMap.has(key)) {
-              mergedMap.set(key, localLap);
-            } else {
-              const sheetLap = mergedMap.get(key);
-              const localMs = parseLapInput(localLap.lapTime) || localLap.lapMs || Infinity;
-              const sheetMs = parseLapInput(sheetLap.lapTime) || sheetLap.lapMs || Infinity;
-              
-              if (localMs <= sheetMs) {
-                mergedMap.set(key, { ...sheetLap, ...localLap });
-              }
+          // 2. Add new sheet rows only if not present locally
+          fetchedLaps.forEach(sLap => {
+            const key = `${sLap.trackId}_${sLap.driver.toLowerCase().trim()}`;
+            if (!localMap.has(key)) {
+              localMap.set(key, sLap);
             }
           });
 
-          return Array.from(mergedMap.values());
+          const merged = Array.from(localMap.values());
+          try {
+            localStorage.setItem('driftx_f1_laps_v4', JSON.stringify(merged));
+          } catch(e) {}
+          return merged;
         });
         setLastSyncTime(new Date().toLocaleTimeString());
       }
@@ -200,12 +196,6 @@ export default function App() {
       setIsSyncing(false);
     }
   }, [sheetSyncUrl, selectedTrack]);
-
-  useEffect(() => {
-    if (sheetSyncUrl) {
-      syncSheetData(sheetSyncUrl);
-    }
-  }, [sheetSyncUrl, syncSheetData]);
 
   useEffect(() => {
     if (autoRefreshInterval > 0 && sheetSyncUrl) {
@@ -272,47 +262,32 @@ export default function App() {
     }, 4000);
   };
 
-  // Record Lap Action (Instant Update & Screen Jump to Track)
-  const handleAddLap = (newLap, isUpdate = false) => {
-    // 1. Instantly switch to the track of the recorded lap so the user immediately sees it
-    if (newLap.trackId && newLap.trackId !== selectedTrack) {
+  // Record Lap Action (Instant Save, Zero Filter Drop, Immediate Screen Jump)
+  const handleAddLap = (newLap) => {
+    // 1. Instantly switch to the track of the recorded lap
+    if (newLap.trackId) {
       setSelectedTrack(newLap.trackId);
     }
 
-    // 2. Commit to React state and LocalStorage
+    // 2. Add or update in state and localStorage immediately
     setLaps(prev => {
-      const cleanPhone = newLap.phone ? newLap.phone.replace(/[^0-9]/g, '') : '';
-      const driverName = newLap.driver.toLowerCase().trim();
+      const driverLower = newLap.driver.toLowerCase().trim();
+      const phoneClean = newLap.phone ? newLap.phone.replace(/[^0-9]/g, '') : '';
+      
+      const filtered = prev.filter(l => {
+        if (l.trackId !== newLap.trackId) return true;
+        if (phoneClean && l.phone && l.phone.replace(/[^0-9]/g, '') === phoneClean) return false;
+        if (l.driver.toLowerCase().trim() === driverLower) return false;
+        return true;
+      });
 
-      const existingIndex = prev.findIndex(l => 
-        l.trackId === newLap.trackId && (
-          (cleanPhone && l.phone && l.phone.replace(/[^0-9]/g, '') === cleanPhone) ||
-          (driverName && l.driver.toLowerCase().trim() === driverName)
-        )
-      );
-
-      if (existingIndex !== -1) {
-        const existingLap = prev[existingIndex];
-        const existingMs = parseLapInput(existingLap.lapTime) || existingLap.lapMs || Infinity;
-        const newMs = parseLapInput(newLap.lapTime) || newLap.lapMs || Infinity;
-
-        const updated = [...prev];
-        updated[existingIndex] = {
-          ...existingLap,
-          ...newLap,
-          id: existingLap.id,
-          lapTime: (newLap.validLap && (newMs <= existingMs || !existingLap.validLap)) ? newLap.lapTime : existingLap.lapTime,
-          lapMs: (newLap.validLap && (newMs <= existingMs || !existingLap.validLap)) ? newMs : existingMs,
-          s1: newLap.s1 || existingLap.s1,
-          s2: newLap.s2 || existingLap.s2,
-          s3: newLap.s3 || existingLap.s3,
-          timestamp: new Date().toISOString().slice(0, 16).replace('T', ' ')
-        };
-        return updated;
+      const updated = [newLap, ...filtered];
+      try {
+        localStorage.setItem('driftx_f1_laps_v4', JSON.stringify(updated));
+      } catch (err) {
+        console.error('localStorage error:', err);
       }
-
-      // Prepend brand new driver
-      return [newLap, ...prev];
+      return updated;
     });
 
     showToast(`⏱️ Lap recorded: ${newLap.driver} (${newLap.lapTime})`);
@@ -325,20 +300,32 @@ export default function App() {
 
   const handleDeleteLap = (lapId) => {
     if (!isAdmin) return;
-    setLaps(prev => prev.filter(l => l.id !== lapId));
+    setLaps(prev => {
+      const updated = prev.filter(l => l.id !== lapId);
+      try {
+        localStorage.setItem('driftx_f1_laps_v4', JSON.stringify(updated));
+      } catch(e) {}
+      return updated;
+    });
     showToast('🗑️ Lap entry deleted');
   };
 
   const handleToggleLapValidity = (lapId) => {
     if (!isAdmin) return;
-    setLaps(prev => prev.map(l => {
-      if (l.id === lapId) {
-        const nextValid = !l.validLap;
-        showToast(nextValid ? '✅ Lap validated' : '⚠️ Lap invalidated');
-        return { ...l, validLap: nextValid };
-      }
-      return l;
-    }));
+    setLaps(prev => {
+      const updated = prev.map(l => {
+        if (l.id === lapId) {
+          const nextValid = !l.validLap;
+          showToast(nextValid ? '✅ Lap validated' : '⚠️ Lap invalidated');
+          return { ...l, validLap: nextValid };
+        }
+        return l;
+      });
+      try {
+        localStorage.setItem('driftx_f1_laps_v4', JSON.stringify(updated));
+      } catch(e) {}
+      return updated;
+    });
   };
 
   const handleImportLaps = (importedLaps) => {
@@ -356,15 +343,14 @@ export default function App() {
         );
 
         if (idx !== -1) {
-          const oldMs = parseLapInput(merged[idx].lapTime) || merged[idx].lapMs || Infinity;
-          const newMs = parseLapInput(newLap.lapTime) || newLap.lapMs || Infinity;
-          if (newMs <= oldMs) {
-            merged[idx] = newLap;
-          }
+          merged[idx] = newLap;
         } else {
           merged.push(newLap);
         }
       });
+      try {
+        localStorage.setItem('driftx_f1_laps_v4', JSON.stringify(merged));
+      } catch(e) {}
       return merged;
     });
     showToast(`📥 Imported ${importedLaps.length} laps`);
