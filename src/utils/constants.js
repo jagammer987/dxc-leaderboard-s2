@@ -80,9 +80,9 @@ export const TOURNAMENT_INFO = {
   season: 'SEASON 2026',
   location: 'DriftxCommune ARENA',
   stages: 'Time Trials (Red Bull Ring) ➔ Eliminators (Bahrain) ➔ Grand Finals (Silverstone)',
-  // You can set your default public Google Sheet URL here to load automatically for everyone:
-  defaultGoogleSheetUrl: ''
+  // Official live Google Sheet Web App connected
+  defaultGoogleSheetUrl: 'https://script.google.com/macros/s/AKfycbx0hZR6xB1OUffKOIeXStKKE8dcGvnBh9P-2tcxif9iERxgO1WvS7suTPrRJW3Ulfs/exec'
 };
 
-// Clean initial leaderboard - only real data logged by marshals or loaded from Google Sheet will display
+// Initial clean leaderboard - live data loads directly from the Google Sheet
 export const INITIAL_LEADERBOARD = [];

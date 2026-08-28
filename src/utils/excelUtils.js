@@ -30,16 +30,15 @@ function doPost(e) {
     
     var phone = String(contents.phone || '').replace(/[^0-9]/g, '');
     var driver = String(contents.driver || '').trim().toLowerCase();
-    var trackId = String(contents.trackId || '').trim().toLowerCase();
+    var trackId = String(contents.trackId || 'redbullring').trim().toLowerCase();
     
-    // Find row if existing
+    // Check existing driver row
     var foundIndex = -1;
     for (var i = 1; i < data.length; i++) {
-      var rowTrack = String(data[i][2] || '').trim().toLowerCase();
-      var rowPhone = String(data[i][1] || '').replace(/[^0-9]/g, '');
-      var rowDriver = String(data[i][0] || '').trim().toLowerCase();
+      var rowDriver = String(data[i][0] || data[i][1] || '').trim().toLowerCase();
+      var rowPhone = String(data[i][1] || data[i][2] || '').replace(/[^0-9]/g, '');
       
-      if (rowTrack === trackId && ((phone && rowPhone === phone) || (!phone && rowDriver === driver))) {
+      if ((phone && rowPhone === phone) || (rowDriver === driver)) {
         foundIndex = i + 1;
         break;
       }
@@ -76,7 +75,7 @@ function doPost(e) {
 }`;
 
 /**
- * Normalizes headers from Excel/CSV to standardize keys
+ * Normalizes headers from Excel/CSV/JSON to standardize keys
  */
 function normalizeRowKeys(row) {
   const normalized = {};
@@ -88,79 +87,80 @@ function normalizeRowKeys(row) {
 }
 
 /**
- * Maps a single row object from Excel/CSV/JSON to our standard Lap schema
+ * Smart Adaptive Mapper: Handles both standard column layout and shifted layouts
  */
 export function mapRowToLap(row, defaultTrackId = 'redbullring') {
-  const norm = normalizeRowKeys(row);
+  let driver = '';
+  let phone = '';
+  let trackId = defaultTrackId;
+  let team = 'DriftxCommune Racing';
+  let lapTime = '--:--.---';
+  let s1 = '';
+  let s2 = '';
+  let s3 = '';
+  let tyre = 'SOFT';
+  let rig = 'Rig 1';
+  let assists = 'NONE';
+  let topSpeed = 320.0;
+  let validLap = true;
+  let timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  let notes = '';
 
-  // Driver Name
-  const driver = norm.drivername || norm.driver || norm.name || norm.pilot || norm.player || 'Unknown Driver';
+  // 1. Shifted layout detection: Pos contains driver name (e.g. "amyn", "amisha", "Rishabh Na")
+  if (row.Pos && isNaN(Number(row.Pos))) {
+    driver = String(row.Pos).trim();
+    phone = String(row['Driver Name'] || row.drivername || '').replace(/[^0-9]/g, '');
+    
+    const rawTrack = String(row['Mobile Number (Admin)'] || row['Stage / Track'] || defaultTrackId).toLowerCase();
+    if (rawTrack.includes('redbull') || rawTrack.includes('austria')) trackId = 'redbullring';
+    else if (rawTrack.includes('bahrain')) trackId = 'bahrain';
+    else if (rawTrack.includes('silverstone')) trackId = 'silverstone';
+    else trackId = 'redbullring';
 
-  // Mobile / Phone
-  let phone = norm.mobilenumber || norm.mobile || norm.phone || norm.phonenumber || norm.contact || norm.tel || '';
-  phone = String(phone).replace(/[^0-9]/g, '').trim();
+    team = String(row['Stage / Track'] || 'DriftxCommune Racing').trim();
+    lapTime = String(row['F1 Team'] || row['Lap Time'] || '--:--.---').trim();
+    tyre = String(row['Sector 3'] || row.Tyre || 'SOFT').toUpperCase();
+    rig = String(row['Gap to P1'] || row['Sim Rig'] || 'Rig 1').trim();
+    assists = String(row.Tyre || 'NONE').toUpperCase();
+    topSpeed = parseFloat(row['Sim Rig']) || 320.0;
+    
+    const vStr = String(row.Assists || row['Valid Lap'] || 'YES').toUpperCase().trim();
+    validLap = vStr === 'YES' || vStr === 'TRUE' || vStr === '1';
+    timestamp = String(row['Valid Lap'] || row['Date & Time'] || timestamp).trim();
+  } else {
+    // 2. Standard layout
+    const norm = normalizeRowKeys(row);
+    driver = norm.drivername || norm.driver || norm.name || norm.pilot || norm.player || '';
+    phone = String(norm.mobilenumber || norm.mobile || norm.phone || norm.phonenumber || '').replace(/[^0-9]/g, '');
+    
+    const rawTrack = String(norm.trackid || norm.track || norm.stage || defaultTrackId).toLowerCase();
+    if (rawTrack.includes('redbull') || rawTrack.includes('austria')) trackId = 'redbullring';
+    else if (rawTrack.includes('bahrain')) trackId = 'bahrain';
+    else if (rawTrack.includes('silverstone')) trackId = 'silverstone';
+    else trackId = defaultTrackId;
 
-  // Track ID
-  let trackId = norm.trackid || norm.track || norm.circuit || norm.stage || defaultTrackId;
-  trackId = String(trackId).toLowerCase().trim().replace(/[^a-z0-9]/g, '');
-  if (trackId.includes('redbull') || trackId.includes('austria') || trackId.includes('spielberg') || trackId.includes('timetrial')) {
-    trackId = 'redbullring';
-  } else if (trackId.includes('bahrain') || trackId.includes('sakhir') || trackId.includes('eliminator')) {
-    trackId = 'bahrain';
-  } else if (trackId.includes('silverstone') || trackId.includes('final') || trackId.includes('uk') || trackId.includes('britain')) {
-    trackId = 'silverstone';
-  } else if (!trackId) {
-    trackId = defaultTrackId;
+    team = norm.team || norm.f1team || 'DriftxCommune Racing';
+    lapTime = norm.laptime || norm.time || norm.lap || '--:--.---';
+    s1 = norm.sector1 || norm.s1 || '';
+    s2 = norm.sector2 || norm.s2 || '';
+    s3 = norm.sector3 || norm.s3 || '';
+    tyre = String(norm.tyre || norm.tire || 'SOFT').toUpperCase();
+    rig = norm.rig || norm.simrig || 'Rig 1';
+    assists = String(norm.assists || 'NONE').toUpperCase();
+    topSpeed = parseFloat(norm.topspeed || norm.speed) || 320.0;
+    
+    const v = String(norm.validlap !== undefined ? norm.validlap : (norm.valid || 'YES')).toUpperCase().trim();
+    validLap = v !== 'NO' && v !== 'FALSE' && v !== '0' && v !== 'DNF' && v !== 'INVALID';
+    timestamp = norm.timestamp || norm.datetime || timestamp;
+    notes = norm.notes || '';
   }
 
-  // Lap Time
-  let lapTime = norm.laptime || norm.time || norm.lap || norm.bestlap || '--:--.---';
-  lapTime = String(lapTime).trim();
-
-  // Sectors
-  const s1 = norm.sector1 || norm.s1 || norm.sec1 || '';
-  const s2 = norm.sector2 || norm.s2 || norm.sec2 || '';
-  const s3 = norm.sector3 || norm.s3 || norm.sec3 || '';
-
-  // Tyre
-  let tyre = (norm.tyre || norm.tire || norm.compound || 'SOFT').toUpperCase();
+  // Clean tyre
   if (tyre.includes('MED')) tyre = 'MEDIUM';
   else if (tyre.includes('HARD')) tyre = 'HARD';
   else if (tyre.includes('INT')) tyre = 'INTER';
   else if (tyre.includes('WET')) tyre = 'WET';
   else tyre = 'SOFT';
-
-  // Rig
-  let rig = norm.rig || norm.simrig || norm.rigsetup || norm.rigid || 'Rig 1';
-  if (typeof rig === 'number') rig = `Rig ${rig}`;
-
-  // Assists
-  let assists = (norm.assists || norm.assist || norm.assistlevel || 'NONE').toUpperCase();
-  if (assists.includes('FULL') || assists.includes('CASUAL')) assists = 'FULL';
-  else if (assists.includes('MED') || assists.includes('PRO')) assists = 'MEDIUM';
-  else assists = 'NONE';
-
-  // Team
-  const team = norm.team || norm.f1team || norm.livery || 'DriftxCommune Racing';
-
-  // Top Speed
-  const topSpeed = parseFloat(norm.topspeed || norm.speed || norm.maxspeed || norm.kmh) || 320.0;
-
-  // Valid Lap
-  let validLap = true;
-  if (norm.valid !== undefined) {
-    const v = String(norm.valid).toLowerCase().trim();
-    if (v === 'false' || v === '0' || v === 'no' || v === 'dnf' || v === 'invalid') validLap = false;
-  }
-  if (norm.validlap !== undefined) {
-    const v = String(norm.validlap).toLowerCase().trim();
-    if (v === 'false' || v === '0' || v === 'no' || v === 'dnf' || v === 'invalid') validLap = false;
-  }
-  if (norm.status && String(norm.status).toLowerCase().includes('inv')) validLap = false;
-
-  // Notes & Timestamp
-  const notes = norm.notes || norm.remarks || norm.comment || '';
-  const timestamp = norm.timestamp || norm.date || norm.timeofday || new Date().toISOString().slice(0, 16).replace('T', ' ');
 
   return {
     id: `lap-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
@@ -168,7 +168,7 @@ export function mapRowToLap(row, defaultTrackId = 'redbullring') {
     phone,
     trackId,
     team: String(team).trim(),
-    lapTime,
+    lapTime: String(lapTime).trim(),
     s1: String(s1).trim(),
     s2: String(s2).trim(),
     s3: String(s3).trim(),
@@ -201,13 +201,13 @@ export function extractGoogleSheetId(url) {
 }
 
 /**
- * Fetches and parses a live Google Sheet with automatic CORS fallbacks
+ * Fetches and parses live Google Sheet / Webhook data
  */
 export async function fetchLiveSheetData(sheetUrl, defaultTrackId = 'redbullring') {
   if (!sheetUrl) throw new Error('No Google Sheet URL provided');
   const clean = sheetUrl.trim();
 
-  // 1. If it's a Google Apps Script Web App JSON endpoint
+  // 1. Google Apps Script Web App JSON endpoint
   if (clean.includes('script.google.com/macros/s/')) {
     const res = await fetch(clean);
     if (!res.ok) throw new Error(`Apps Script HTTP ${res.status}`);
@@ -215,8 +215,9 @@ export async function fetchLiveSheetData(sheetUrl, defaultTrackId = 'redbullring
     if (Array.isArray(jsonRows) && jsonRows.length > 0) {
       return jsonRows
         .map(row => mapRowToLap(row, defaultTrackId))
-        .filter(lap => lap.driver && lap.driver !== 'Unknown Driver');
+        .filter(lap => lap.driver && lap.driver !== 'Unknown Driver' && lap.lapTime !== '--:--.---');
     }
+    return [];
   }
 
   // 2. Standard Google Sheet URL
@@ -227,7 +228,6 @@ export async function fetchLiveSheetData(sheetUrl, defaultTrackId = 'redbullring
 
   const { sheetId, gid } = sheetInfo;
 
-  // Try Endpoints in order of reliability
   const candidateUrls = [
     `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&gid=${gid}`,
     `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`,
@@ -245,13 +245,11 @@ export async function fetchLiveSheetData(sheetUrl, defaultTrackId = 'redbullring
           break;
         }
       }
-    } catch (e) {
-      // Try next candidate
-    }
+    } catch (e) {}
   }
 
   if (!rawCsvText) {
-    throw new Error('Could not access Google Sheet. Make sure Share is set to "Anyone with the link can view".');
+    throw new Error('Could not access Google Sheet.');
   }
 
   const workbook = XLSX.read(rawCsvText, { type: 'string' });
@@ -260,12 +258,12 @@ export async function fetchLiveSheetData(sheetUrl, defaultTrackId = 'redbullring
   const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
 
   if (!jsonData || jsonData.length === 0) {
-    throw new Error('Google Sheet contains no readable rows');
+    return [];
   }
 
   return jsonData
     .map(row => mapRowToLap(row, defaultTrackId))
-    .filter(lap => lap.driver && lap.driver !== 'Unknown Driver');
+    .filter(lap => lap.driver && lap.driver !== 'Unknown Driver' && lap.lapTime !== '--:--.---');
 }
 
 /**
@@ -372,7 +370,7 @@ export function exportLeaderboardToExcel(laps, trackName = 'All Stages', include
 export function downloadTournamentExcelTemplate() {
   const sampleData = [
     {
-      'Driver Name': 'Aarav Sharma',
+      'Driver Name': 'Driver 1',
       'Mobile Number': '9876543210',
       'Track': 'redbullring',
       'Team': 'DriftxCommune Racing',
@@ -387,40 +385,6 @@ export function downloadTournamentExcelTemplate() {
       'Valid Lap': 'YES',
       'Notes': 'Time Trials Round',
       'Timestamp': '2026-08-28 15:40'
-    },
-    {
-      'Driver Name': 'Vikramaditya Rao',
-      'Mobile Number': '9812345678',
-      'Track': 'bahrain',
-      'Team': 'Scuderia Ferrari',
-      'Lap Time': '1:31.840',
-      'Sector 1': '28.920',
-      'Sector 2': '39.410',
-      'Sector 3': '23.510',
-      'Tyre': 'SOFT',
-      'Sim Rig': 'Rig 1',
-      'Assists': 'NONE',
-      'Top Speed': 334.2,
-      'Valid Lap': 'YES',
-      'Notes': 'Eliminators Round',
-      'Timestamp': '2026-08-28 16:10'
-    },
-    {
-      'Driver Name': 'Kabir Mehta',
-      'Mobile Number': '9923456789',
-      'Track': 'silverstone',
-      'Team': 'Red Bull Racing',
-      'Lap Time': '1:25.112',
-      'Sector 1': '27.420',
-      'Sector 2': '34.892',
-      'Sector 3': '22.800',
-      'Tyre': 'SOFT',
-      'Sim Rig': 'Rig 4 (VR)',
-      'Assists': 'NONE',
-      'Top Speed': 321.5,
-      'Valid Lap': 'YES',
-      'Notes': 'Grand Finals',
-      'Timestamp': '2026-08-28 17:00'
     }
   ];
 
