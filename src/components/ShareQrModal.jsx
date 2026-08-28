@@ -1,13 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   X, 
-  Share2, 
   Copy, 
   Check, 
-  Smartphone, 
-  Link,
-  Sparkles,
-  Layers
+  Smartphone
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { TRACKS } from '../utils/constants';
@@ -21,7 +17,6 @@ export default function ShareQrModal({
 }) {
   const [copied, setCopied] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState('');
-  const [shareMode, setShareMode] = useState('live'); // 'live' (with current data) or 'cloud'
 
   const currentTrackData = TRACKS.find(t => t.id === selectedTrack) || TRACKS[0];
 
@@ -32,12 +27,15 @@ export default function ShareQrModal({
     const params = new URLSearchParams();
     params.set('track', selectedTrack);
 
+    // If Google Sheet is connected, pass clean URL (URLSearchParams handles encoding)
     if (sheetSyncUrl) {
-      params.set('sheet', encodeURIComponent(sheetSyncUrl));
-    } else if (currentLaps && currentLaps.length > 0) {
-      // Pack light version of current laps into URL (stripped of sensitive admin notes/phone)
+      params.set('sheet', sheetSyncUrl);
+    } 
+    
+    // Also pack latest live laps so phone immediately renders even before sheet fetch completes
+    if (currentLaps && currentLaps.length > 0) {
       try {
-        const lightLaps = currentLaps.map(l => ({
+        const lightLaps = currentLaps.slice(0, 30).map(l => ({
           d: l.driver,
           t: l.trackId,
           l: l.lapTime,
@@ -49,11 +47,14 @@ export default function ShareQrModal({
           r: l.rig,
           v: l.validLap ? 1 : 0
         }));
-        const encoded = btoa(encodeURIComponent(JSON.stringify(lightLaps)));
-        if (encoded.length < 1800) {
+        const rawJson = JSON.stringify(lightLaps);
+        const encoded = btoa(encodeURIComponent(rawJson));
+        if (encoded.length < 2000) {
           params.set('d', encoded);
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn('Pack data warning:', e);
+      }
     }
 
     return `${baseUrl}?${params.toString()}`;
@@ -63,13 +64,13 @@ export default function ShareQrModal({
 
   useEffect(() => {
     if (shareUrl) {
-      // Generate QR Code with stark contrast for fast mobile camera scanning
+      // High-contrast QR code for instant camera recognition on all phones
       QRCode.toDataURL(shareUrl, {
         width: 280,
         margin: 2,
         color: {
           dark: '#E81728', // DriftxCommune Red
-          light: '#FFFFFF'  // White background for 100% instant phone camera detection
+          light: '#FFFFFF'  // White background
         },
         errorCorrectionLevel: 'M'
       })

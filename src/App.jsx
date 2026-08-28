@@ -40,7 +40,11 @@ export default function App() {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const urlSheet = params.get('sheet');
-      if (urlSheet) return decodeURIComponent(urlSheet);
+      if (urlSheet) {
+        const clean = urlSheet.startsWith('http%') ? decodeURIComponent(urlSheet) : urlSheet;
+        localStorage.setItem('driftx_sheet_url', clean);
+        return clean;
+      }
       return localStorage.getItem('driftx_sheet_url') || TOURNAMENT_INFO.defaultGoogleSheetUrl || '';
     }
     return TOURNAMENT_INFO.defaultGoogleSheetUrl || '';
@@ -68,7 +72,7 @@ export default function App() {
           const decoded = JSON.parse(decodeURIComponent(atob(packedData)));
           if (Array.isArray(decoded) && decoded.length > 0) {
             const mapped = decoded.map((l, i) => ({
-              id: `lap-url-${i}-${Date.now()}`,
+              id: `lap-qr-${i}-${Date.now()}`,
               driver: l.d || 'Racer',
               trackId: l.t || 'redbullring',
               lapTime: l.l || '--:--.---',
@@ -178,7 +182,7 @@ export default function App() {
       const url = new URL(window.location);
       url.searchParams.set('track', selectedTrack);
       if (sheetSyncUrl) {
-        url.searchParams.set('sheet', encodeURIComponent(sheetSyncUrl));
+        url.searchParams.set('sheet', sheetSyncUrl);
       } else {
         url.searchParams.delete('sheet');
       }
@@ -188,7 +192,7 @@ export default function App() {
     }
   }, [selectedTrack, sheetSyncUrl]);
 
-  // 5. Live Google Sheet Polling (Never removes local laps)
+  // 5. Live Google Sheet Polling
   const syncSheetData = useCallback(async (urlToFetch) => {
     const targetUrl = urlToFetch || sheetSyncUrl;
     if (!targetUrl) return;
@@ -200,13 +204,13 @@ export default function App() {
         setLaps(prev => {
           const localMap = new Map();
 
-          // 1. Keep ALL local laps as source of truth
+          // 1. Keep ALL local laps as base
           prev.forEach(l => {
             const key = `${l.trackId}_${l.driver.toLowerCase().trim()}`;
             localMap.set(key, l);
           });
 
-          // 2. Add new sheet rows only if not present locally
+          // 2. Add new sheet rows
           fetchedLaps.forEach(sLap => {
             const key = `${sLap.trackId}_${sLap.driver.toLowerCase().trim()}`;
             if (!localMap.has(key)) {
@@ -228,6 +232,13 @@ export default function App() {
       setIsSyncing(false);
     }
   }, [sheetSyncUrl, selectedTrack]);
+
+  // Trigger sync on load if sheet url present
+  useEffect(() => {
+    if (sheetSyncUrl) {
+      syncSheetData(sheetSyncUrl);
+    }
+  }, [sheetSyncUrl, syncSheetData]);
 
   useEffect(() => {
     if (autoRefreshInterval > 0 && sheetSyncUrl) {
@@ -294,7 +305,7 @@ export default function App() {
     }, 4000);
   };
 
-  // Record Lap Action (Instant Save, Immediate Screen Jump)
+  // Record Lap Action
   const handleAddLap = (newLap) => {
     if (newLap.trackId) {
       setSelectedTrack(newLap.trackId);

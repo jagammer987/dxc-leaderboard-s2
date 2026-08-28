@@ -80,7 +80,6 @@ export const TOURNAMENT_INFO = {
   season: 'SEASON 2026',
   location: 'DriftxCommune ARENA',
   stages: 'Time Trials (Red Bull Ring) ➔ Eliminators (Bahrain) ➔ Grand Finals (Silverstone)',
-  prizePool: '₹25,000 + CHAMPION TROPHY',
   // You can set your default public Google Sheet URL here to load automatically for everyone:
   defaultGoogleSheetUrl: ''
 };

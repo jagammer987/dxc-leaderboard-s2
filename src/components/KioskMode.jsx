@@ -251,15 +251,12 @@ export default function KioskMode({
             </div>
           )}
 
-          {/* Rules & Prize Banner */}
+          {/* Tournament Stages Banner */}
           <div className="bg-[#080808] border border-neutral-900 rounded-2xl p-4 text-xs font-tech text-neutral-300">
             <div className="font-bold text-white uppercase mb-1">DRIFTxCOMMUNE F1 SIM CUP</div>
-            <p className="text-[11px] leading-relaxed mb-2 text-neutral-400">
+            <p className="text-[11px] leading-relaxed text-neutral-400">
               {TOURNAMENT_INFO.stages}
             </p>
-            <div className="pt-2 border-t border-neutral-900 text-red-500 font-bold">
-              🏆 {TOURNAMENT_INFO.prizePool}
-            </div>
           </div>
         </div>
       </div>
