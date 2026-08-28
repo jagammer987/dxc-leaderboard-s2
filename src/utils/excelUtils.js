@@ -5,7 +5,8 @@ import * as XLSX from 'xlsx';
  * Marshals can paste this into Google Sheet > Extensions > Apps Script and click Deploy!
  */
 export const GOOGLE_APPS_SCRIPT_CODE = `function doGet(e) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getActiveSheet() || ss.getSheets()[0];
   var data = sheet.getDataRange().getValues();
   if (data.length <= 1) {
     return ContentService.createTextOutput(JSON.stringify([])).setMimeType(ContentService.MimeType.JSON);
@@ -25,7 +26,8 @@ export const GOOGLE_APPS_SCRIPT_CODE = `function doGet(e) {
 function doPost(e) {
   try {
     var contents = JSON.parse(e.postData.contents);
-    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getActiveSheet() || ss.getSheets()[0];
     var data = sheet.getDataRange().getValues();
     
     var phone = String(contents.phone || '').replace(/[^0-9]/g, '');
@@ -201,6 +203,48 @@ export function extractGoogleSheetId(url) {
 }
 
 /**
+ * Custom line-by-line CSV Parser handling quoted strings
+ */
+function parseCustomCSV(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lines.length <= 1) return [];
+
+  const parseLine = (line) => {
+    const res = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '"') {
+        inQuotes = !inQuotes;
+      } else if (c === ',' && !inQuotes) {
+        res.push(cur.trim().replace(/^"|"$/g, ''));
+        cur = '';
+      } else {
+        cur += c;
+      }
+    }
+    res.push(cur.trim().replace(/^"|"$/g, ''));
+    return res;
+  };
+
+  const headers = parseLine(lines[0]);
+  const rows = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const vals = parseLine(lines[i]);
+    if (vals.length === 0 || vals.every(v => !v)) continue;
+    const obj = {};
+    headers.forEach((h, idx) => {
+      obj[h] = vals[idx] !== undefined ? vals[idx] : '';
+    });
+    rows.push(obj);
+  }
+
+  return rows;
+}
+
+/**
  * Fetches and parses live Google Sheet / Webhook data
  */
 export async function fetchLiveSheetData(sheetUrl, defaultTrackId = 'redbullring') {
@@ -209,61 +253,51 @@ export async function fetchLiveSheetData(sheetUrl, defaultTrackId = 'redbullring
 
   // 1. Google Apps Script Web App JSON endpoint
   if (clean.includes('script.google.com/macros/s/')) {
-    const res = await fetch(clean);
-    if (!res.ok) throw new Error(`Apps Script HTTP ${res.status}`);
-    const jsonRows = await res.json();
-    if (Array.isArray(jsonRows) && jsonRows.length > 0) {
-      return jsonRows
-        .map(row => mapRowToLap(row, defaultTrackId))
-        .filter(lap => lap.driver && lap.driver !== 'Unknown Driver' && lap.lapTime !== '--:--.---');
+    try {
+      const res = await fetch(clean);
+      if (res.ok) {
+        const jsonRows = await res.json();
+        if (Array.isArray(jsonRows)) {
+          return jsonRows
+            .map(row => mapRowToLap(row, defaultTrackId))
+            .filter(lap => lap.driver && lap.driver !== 'Unknown Driver' && lap.lapTime !== '--:--.---');
+        }
+      }
+    } catch (e) {
+      console.warn('Apps Script fetch warning:', e);
     }
-    return [];
   }
 
   // 2. Standard Google Sheet URL
   const sheetInfo = extractGoogleSheetId(clean);
   if (!sheetInfo) {
-    throw new Error('Invalid Google Sheet URL format');
+    return [];
   }
 
   const { sheetId, gid } = sheetInfo;
 
   const candidateUrls = [
+    `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&id=${sheetId}&gid=${gid}`,
     `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&gid=${gid}`,
-    `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&gid=${gid}`)}`
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&id=${sheetId}&gid=${gid}`)}`
   ];
 
-  let rawCsvText = null;
   for (const endpoint of candidateUrls) {
     try {
       const resp = await fetch(endpoint, { method: 'GET' });
       if (resp.ok) {
         const text = await resp.text();
         if (text && !text.includes('<!DOCTYPE html>') && text.length > 10) {
-          rawCsvText = text;
-          break;
+          const rows = parseCustomCSV(text);
+          return rows
+            .map(row => mapRowToLap(row, defaultTrackId))
+            .filter(lap => lap.driver && lap.driver !== 'Unknown Driver' && lap.lapTime !== '--:--.---');
         }
       }
     } catch (e) {}
   }
 
-  if (!rawCsvText) {
-    throw new Error('Could not access Google Sheet.');
-  }
-
-  const workbook = XLSX.read(rawCsvText, { type: 'string' });
-  const firstSheetName = workbook.SheetNames[0];
-  const worksheet = workbook.Sheets[firstSheetName];
-  const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
-
-  if (!jsonData || jsonData.length === 0) {
-    return [];
-  }
-
-  return jsonData
-    .map(row => mapRowToLap(row, defaultTrackId))
-    .filter(lap => lap.driver && lap.driver !== 'Unknown Driver' && lap.lapTime !== '--:--.---');
+  return [];
 }
 
 /**
