@@ -64,38 +64,6 @@ export default function App() {
 
   const [laps, setLaps] = useState(() => {
     if (typeof window !== 'undefined') {
-      // A. Check if live data is packed in URL (?d=...)
-      const params = new URLSearchParams(window.location.search);
-      const packedData = params.get('d');
-      if (packedData) {
-        try {
-          const decoded = JSON.parse(decodeURIComponent(atob(packedData)));
-          if (Array.isArray(decoded) && decoded.length > 0) {
-            const mapped = decoded.map((l, i) => ({
-              id: `lap-qr-${i}-${Date.now()}`,
-              driver: l.d || 'Racer',
-              trackId: l.t || 'redbullring',
-              lapTime: l.l || '--:--.---',
-              s1: l.s1 || '',
-              s2: l.s2 || '',
-              s3: l.s3 || '',
-              team: l.tm || 'DriftxCommune Racing',
-              tyre: l.ty || 'SOFT',
-              rig: l.r || 'Rig 1',
-              assists: 'NONE',
-              topSpeed: 320.0,
-              validLap: l.v !== 0,
-              timestamp: new Date().toISOString().slice(0, 16).replace('T', ' ')
-            }));
-            localStorage.setItem('driftx_f1_laps_v4', JSON.stringify(mapped));
-            return mapped;
-          }
-        } catch (err) {
-          console.warn('Could not decode URL packed data:', err);
-        }
-      }
-
-      // B. Fallback to LocalStorage
       const saved = localStorage.getItem('driftx_f1_laps_v4');
       if (saved) {
         try {
@@ -109,7 +77,8 @@ export default function App() {
     return INITIAL_LEADERBOARD;
   });
 
-  const [autoRefreshInterval, setAutoRefreshInterval] = useState(0);
+  // Auto-refresh every 5 seconds so all devices stay 100% in sync with Google Sheet
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState(5);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState(null);
   const [isMuted, setIsMuted] = useState(false);
@@ -181,49 +150,28 @@ export default function App() {
       localStorage.setItem('driftx_sheet_url', sheetSyncUrl);
       const url = new URL(window.location);
       url.searchParams.set('track', selectedTrack);
-      if (sheetSyncUrl) {
-        url.searchParams.set('sheet', sheetSyncUrl);
-      } else {
-        url.searchParams.delete('sheet');
-      }
+      url.searchParams.delete('sheet');
       url.searchParams.delete('admin');
       url.searchParams.delete('marshal');
+      url.searchParams.delete('d');
       window.history.replaceState({}, '', url);
     }
   }, [selectedTrack, sheetSyncUrl]);
 
-  // 5. Live Google Sheet Polling
+  // 5. Live Google Sheet Polling (Single Source of Truth)
   const syncSheetData = useCallback(async (urlToFetch) => {
-    const targetUrl = urlToFetch || sheetSyncUrl;
+    const targetUrl = urlToFetch || sheetSyncUrl || TOURNAMENT_INFO.defaultGoogleSheetUrl;
     if (!targetUrl) return;
 
     try {
       setIsSyncing(true);
       const fetchedLaps = await fetchLiveSheetData(targetUrl, selectedTrack);
-      if (fetchedLaps && fetchedLaps.length > 0) {
-        setLaps(prev => {
-          const localMap = new Map();
-
-          // 1. Keep ALL local laps as base
-          prev.forEach(l => {
-            const key = `${l.trackId}_${l.driver.toLowerCase().trim()}`;
-            localMap.set(key, l);
-          });
-
-          // 2. Add new sheet rows
-          fetchedLaps.forEach(sLap => {
-            const key = `${sLap.trackId}_${sLap.driver.toLowerCase().trim()}`;
-            if (!localMap.has(key)) {
-              localMap.set(key, sLap);
-            }
-          });
-
-          const merged = Array.from(localMap.values());
-          try {
-            localStorage.setItem('driftx_f1_laps_v4', JSON.stringify(merged));
-          } catch(e) {}
-          return merged;
-        });
+      if (fetchedLaps && Array.isArray(fetchedLaps)) {
+        // Direct sync with Google Sheet as single source of truth
+        setLaps(fetchedLaps);
+        try {
+          localStorage.setItem('driftx_f1_laps_v4', JSON.stringify(fetchedLaps));
+        } catch(e) {}
         setLastSyncTime(new Date().toLocaleTimeString());
       }
     } catch (err) {
@@ -233,15 +181,14 @@ export default function App() {
     }
   }, [sheetSyncUrl, selectedTrack]);
 
-  // Trigger sync on load if sheet url present
+  // Trigger sync on load immediately
   useEffect(() => {
-    if (sheetSyncUrl) {
-      syncSheetData(sheetSyncUrl);
-    }
+    syncSheetData(sheetSyncUrl);
   }, [sheetSyncUrl, syncSheetData]);
 
+  // Background auto-refresh loop (5 seconds)
   useEffect(() => {
-    if (autoRefreshInterval > 0 && sheetSyncUrl) {
+    if (autoRefreshInterval > 0) {
       const intervalId = setInterval(() => {
         syncSheetData(sheetSyncUrl);
       }, autoRefreshInterval * 1000);
@@ -305,12 +252,13 @@ export default function App() {
     }, 4000);
   };
 
-  // Record Lap Action
-  const handleAddLap = (newLap) => {
+  // Record Lap Action (Optimistic UI Update + Background Google Sheet Push)
+  const handleAddLap = async (newLap) => {
     if (newLap.trackId) {
       setSelectedTrack(newLap.trackId);
     }
 
+    // 1. Optimistically update UI
     setLaps(prev => {
       const driverLower = newLap.driver.toLowerCase().trim();
       const phoneClean = newLap.phone ? newLap.phone.replace(/[^0-9]/g, '') : '';
@@ -325,17 +273,18 @@ export default function App() {
       const updated = [newLap, ...filtered];
       try {
         localStorage.setItem('driftx_f1_laps_v4', JSON.stringify(updated));
-      } catch (err) {
-        console.error('localStorage error:', err);
-      }
+      } catch (err) {}
       return updated;
     });
 
     showToast(`⏱️ Lap recorded: ${newLap.driver} (${newLap.lapTime})`);
 
-    // Push to Google Sheet if webhook configured
-    if (sheetSyncUrl) {
-      pushLapToGoogleSheet(sheetSyncUrl, newLap);
+    // 2. Push to Google Sheet in background
+    const targetUrl = sheetSyncUrl || TOURNAMENT_INFO.defaultGoogleSheetUrl;
+    if (targetUrl) {
+      await pushLapToGoogleSheet(targetUrl, newLap);
+      // Immediately trigger sheet fetch to stay in sync
+      setTimeout(() => syncSheetData(targetUrl), 1000);
     }
   };
 
@@ -399,9 +348,9 @@ export default function App() {
 
   const handleResetToDefault = () => {
     if (!isAdmin) return;
-    setLaps(INITIAL_LEADERBOARD);
+    setLaps([]);
     localStorage.removeItem('driftx_f1_laps_v4');
-    showToast('🔄 Reset leaderboard to default seed data');
+    showToast('🔄 Cleared leaderboard');
   };
 
   const handleTogglePinDriver = (driverId) => {
@@ -690,7 +639,6 @@ export default function App() {
           onClose={() => setShowShareModal(false)}
           selectedTrack={selectedTrack}
           sheetSyncUrl={sheetSyncUrl}
-          currentLaps={laps}
         />
       )}
 

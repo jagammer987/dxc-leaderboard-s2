@@ -12,59 +12,27 @@ import { soundEffects } from '../utils/soundFx';
 export default function ShareQrModal({
   onClose,
   selectedTrack,
-  sheetSyncUrl,
-  currentLaps = []
+  sheetSyncUrl
 }) {
   const [copied, setCopied] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState('');
 
   const currentTrackData = TRACKS.find(t => t.id === selectedTrack) || TRACKS[0];
 
-  // Construct Clean Shareable Public URL
+  // Clean Shareable Public URL (Point directly to live leaderboard with active track)
   const getShareableUrl = () => {
-    if (typeof window === 'undefined') return '';
-    const baseUrl = window.location.origin + window.location.pathname;
-    const params = new URLSearchParams();
-    params.set('track', selectedTrack);
-
-    // If Google Sheet is connected, pass clean URL (URLSearchParams handles encoding)
-    if (sheetSyncUrl) {
-      params.set('sheet', sheetSyncUrl);
-    } 
-    
-    // Also pack latest live laps so phone immediately renders even before sheet fetch completes
-    if (currentLaps && currentLaps.length > 0) {
-      try {
-        const lightLaps = currentLaps.slice(0, 30).map(l => ({
-          d: l.driver,
-          t: l.trackId,
-          l: l.lapTime,
-          s1: l.s1,
-          s2: l.s2,
-          s3: l.s3,
-          tm: l.team,
-          ty: l.tyre,
-          r: l.rig,
-          v: l.validLap ? 1 : 0
-        }));
-        const rawJson = JSON.stringify(lightLaps);
-        const encoded = btoa(encodeURIComponent(rawJson));
-        if (encoded.length < 2000) {
-          params.set('d', encoded);
-        }
-      } catch (e) {
-        console.warn('Pack data warning:', e);
-      }
+    if (typeof window !== 'undefined') {
+      const baseUrl = window.location.origin + window.location.pathname;
+      return `${baseUrl}?track=${selectedTrack}`;
     }
-
-    return `${baseUrl}?${params.toString()}`;
+    return '';
   };
 
   const shareUrl = getShareableUrl();
 
   useEffect(() => {
     if (shareUrl) {
-      // High-contrast QR code for instant camera recognition on all phones
+      // High-contrast clean QR code for 100% instant phone scanning
       QRCode.toDataURL(shareUrl, {
         width: 280,
         margin: 2,
@@ -136,10 +104,10 @@ export default function ShareQrModal({
           <div className="mt-3.5 text-center">
             <span className="text-sm font-display font-bold text-white flex items-center justify-center">
               <Smartphone className="w-4 h-4 mr-1.5 text-red-500" />
-              SCAN WITH ANY PHONE CAMERA
+              SCAN WITH ANY SMARTPHONE CAMERA
             </span>
             <span className="text-xs font-tech text-neutral-400 mt-0.5 block">
-              Opens <strong className="text-white">{currentTrackData.stageBadge}</strong> Live Standings on phone
+              Live Cloud Standings for <strong className="text-white">{currentTrackData.stageBadge}</strong>
             </span>
           </div>
         </div>
@@ -147,7 +115,7 @@ export default function ShareQrModal({
         {/* Copy Link Input Bar */}
         <div className="space-y-2 font-tech">
           <label className="text-xs font-bold text-neutral-300 block uppercase">
-            Shareable URL (Public Read-Only)
+            Live Public Leaderboard Link
           </label>
 
           <div className="flex items-center space-x-2">
