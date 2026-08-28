@@ -60,6 +60,38 @@ export default function App() {
 
   const [laps, setLaps] = useState(() => {
     if (typeof window !== 'undefined') {
+      // A. Check if live data is packed in URL (?d=...)
+      const params = new URLSearchParams(window.location.search);
+      const packedData = params.get('d');
+      if (packedData) {
+        try {
+          const decoded = JSON.parse(decodeURIComponent(atob(packedData)));
+          if (Array.isArray(decoded) && decoded.length > 0) {
+            const mapped = decoded.map((l, i) => ({
+              id: `lap-url-${i}-${Date.now()}`,
+              driver: l.d || 'Racer',
+              trackId: l.t || 'redbullring',
+              lapTime: l.l || '--:--.---',
+              s1: l.s1 || '',
+              s2: l.s2 || '',
+              s3: l.s3 || '',
+              team: l.tm || 'DriftxCommune Racing',
+              tyre: l.ty || 'SOFT',
+              rig: l.r || 'Rig 1',
+              assists: 'NONE',
+              topSpeed: 320.0,
+              validLap: l.v !== 0,
+              timestamp: new Date().toISOString().slice(0, 16).replace('T', ' ')
+            }));
+            localStorage.setItem('driftx_f1_laps_v4', JSON.stringify(mapped));
+            return mapped;
+          }
+        } catch (err) {
+          console.warn('Could not decode URL packed data:', err);
+        }
+      }
+
+      // B. Fallback to LocalStorage
       const saved = localStorage.getItem('driftx_f1_laps_v4');
       if (saved) {
         try {
@@ -73,7 +105,7 @@ export default function App() {
     return INITIAL_LEADERBOARD;
   });
 
-  const [autoRefreshInterval, setAutoRefreshInterval] = useState(0); // Off by default to avoid accidental overwrites
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState(null);
   const [isMuted, setIsMuted] = useState(false);
@@ -262,14 +294,12 @@ export default function App() {
     }, 4000);
   };
 
-  // Record Lap Action (Instant Save, Zero Filter Drop, Immediate Screen Jump)
+  // Record Lap Action (Instant Save, Immediate Screen Jump)
   const handleAddLap = (newLap) => {
-    // 1. Instantly switch to the track of the recorded lap
     if (newLap.trackId) {
       setSelectedTrack(newLap.trackId);
     }
 
-    // 2. Add or update in state and localStorage immediately
     setLaps(prev => {
       const driverLower = newLap.driver.toLowerCase().trim();
       const phoneClean = newLap.phone ? newLap.phone.replace(/[^0-9]/g, '') : '';
@@ -292,7 +322,7 @@ export default function App() {
 
     showToast(`⏱️ Lap recorded: ${newLap.driver} (${newLap.lapTime})`);
 
-    // 3. Push to Google Sheet if webhook configured
+    // Push to Google Sheet if webhook configured
     if (sheetSyncUrl) {
       pushLapToGoogleSheet(sheetSyncUrl, newLap);
     }
@@ -399,7 +429,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#000000] text-white flex flex-col justify-between selection:bg-red-600 selection:text-white pb-16 md:pb-0">
+    <div className="min-h-screen bg-[#000000] text-white flex flex-col justify-between selection:bg-red-600 selection:text-white pb-16 md:pb-0 font-tech">
       
       {/* Toast Notification Banner */}
       {toastMessage && (
@@ -492,7 +522,7 @@ export default function App() {
           <div className="hidden sm:flex bg-[#080808] border border-neutral-900 p-1 rounded-xl">
             <button
               onClick={() => setViewMode('cards')}
-              className={`px-3 py-1 rounded-lg text-xs font-tech font-bold transition flex items-center space-x-1 ${
+              className={`px-3 py-1 rounded-lg text-xs font-tech font-bold transition flex items-center space-x-1 cursor-pointer ${
                 viewMode === 'cards' ? 'bg-red-600 text-white' : 'text-neutral-400 hover:text-white'
               }`}
             >
@@ -501,7 +531,7 @@ export default function App() {
             </button>
             <button
               onClick={() => setViewMode('table')}
-              className={`px-3 py-1 rounded-lg text-xs font-tech font-bold transition flex items-center space-x-1 ${
+              className={`px-3 py-1 rounded-lg text-xs font-tech font-bold transition flex items-center space-x-1 cursor-pointer ${
                 viewMode === 'table' ? 'bg-red-600 text-white' : 'text-neutral-400 hover:text-white'
               }`}
             >
@@ -571,14 +601,14 @@ export default function App() {
             <div className="flex items-center space-x-2">
               <button
                 onClick={scrollToPinnedDriver}
-                className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition shadow-md shadow-red-600/40"
+                className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition shadow-md shadow-red-600/40 cursor-pointer"
               >
                 <ChevronUp className="w-3.5 h-3.5" />
                 <span>Jump</span>
               </button>
               <button
                 onClick={() => setPinnedDriverId(null)}
-                className="p-1.5 rounded-lg bg-[#141414] hover:bg-neutral-800 text-neutral-400 hover:text-white border border-neutral-800"
+                className="p-1.5 rounded-lg bg-[#141414] hover:bg-neutral-800 text-neutral-400 hover:text-white border border-neutral-800 cursor-pointer"
                 title="Unpin"
               >
                 <X className="w-4 h-4" />
@@ -649,6 +679,7 @@ export default function App() {
           onClose={() => setShowShareModal(false)}
           selectedTrack={selectedTrack}
           sheetSyncUrl={sheetSyncUrl}
+          currentLaps={laps}
         />
       )}
 

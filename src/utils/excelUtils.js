@@ -27,7 +27,6 @@ function doPost(e) {
     var contents = JSON.parse(e.postData.contents);
     var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
     var data = sheet.getDataRange().getValues();
-    var headers = data[0];
     
     var phone = String(contents.phone || '').replace(/[^0-9]/g, '');
     var driver = String(contents.driver || '').trim().toLowerCase();
@@ -41,7 +40,7 @@ function doPost(e) {
       var rowDriver = String(data[i][0] || '').trim().toLowerCase();
       
       if (rowTrack === trackId && ((phone && rowPhone === phone) || (!phone && rowDriver === driver))) {
-        foundIndex = i + 1; // 1-based index in sheets
+        foundIndex = i + 1;
         break;
       }
     }
@@ -145,7 +144,7 @@ export function mapRowToLap(row, defaultTrackId = 'redbullring') {
   const team = norm.team || norm.f1team || norm.livery || 'DriftxCommune Racing';
 
   // Top Speed
-  const topSpeed = parseFloat(norm.topspeed || norm.speed || norm.maxspeed || norm.kmh) || 325.0;
+  const topSpeed = parseFloat(norm.topspeed || norm.speed || norm.maxspeed || norm.kmh) || 320.0;
 
   // Valid Lap
   let validLap = true;
@@ -184,65 +183,84 @@ export function mapRowToLap(row, defaultTrackId = 'redbullring') {
 }
 
 /**
- * Transforms standard Google Sheet links to reliable GViz CSV URLs or Apps Script URLs
+ * Extracts clean Google Sheet ID and GID from any URL
  */
-export function normalizeGoogleSheetUrl(url) {
-  if (!url) return '';
-  let clean = url.trim();
-
-  // If it's a Google Apps Script Web App URL
-  if (clean.includes('script.google.com/macros/s/')) {
-    return clean;
-  }
-
-  // If it's a standard Google Sheet URL
-  const match = clean.match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+export function extractGoogleSheetId(url) {
+  if (!url) return null;
+  const match = url.match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   if (match && match[1]) {
     const sheetId = match[1];
     let gid = '0';
-    const gidMatch = clean.match(/gid=([0-9]+)/);
+    const gidMatch = url.match(/gid=([0-9]+)/);
     if (gidMatch && gidMatch[1]) {
       gid = gidMatch[1];
     }
-    // GViz output=csv endpoint bypasses CORS and works seamlessly across all browsers
-    return `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&gid=${gid}`;
+    return { sheetId, gid };
   }
-
-  return clean;
+  return null;
 }
 
 /**
- * Fetches and parses a live Google Sheet or online CSV/Excel/Apps Script URL
+ * Fetches and parses a live Google Sheet with automatic CORS fallbacks
  */
 export async function fetchLiveSheetData(sheetUrl, defaultTrackId = 'redbullring') {
-  const exportUrl = normalizeGoogleSheetUrl(sheetUrl);
-  if (!exportUrl) throw new Error('Invalid sheet URL provided');
+  if (!sheetUrl) throw new Error('No Google Sheet URL provided');
+  const clean = sheetUrl.trim();
 
-  // Handle Google Apps Script JSON endpoint
-  if (exportUrl.includes('script.google.com/macros/s/')) {
-    const res = await fetch(exportUrl);
-    if (!res.ok) throw new Error(`Google Apps Script returned status ${res.status}`);
+  // 1. If it's a Google Apps Script Web App JSON endpoint
+  if (clean.includes('script.google.com/macros/s/')) {
+    const res = await fetch(clean);
+    if (!res.ok) throw new Error(`Apps Script HTTP ${res.status}`);
     const jsonRows = await res.json();
-    if (!Array.isArray(jsonRows)) throw new Error('Invalid response from Google Apps Script');
-    return jsonRows
-      .map(row => mapRowToLap(row, defaultTrackId))
-      .filter(lap => lap.driver && lap.driver !== 'Unknown Driver');
+    if (Array.isArray(jsonRows) && jsonRows.length > 0) {
+      return jsonRows
+        .map(row => mapRowToLap(row, defaultTrackId))
+        .filter(lap => lap.driver && lap.driver !== 'Unknown Driver');
+    }
   }
 
-  // Handle Google Sheet GViz CSV endpoint
-  const response = await fetch(exportUrl);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch Google Sheet (${response.status}: ${response.statusText}). Make sure the Google Sheet is shared with "Anyone with the link can view".`);
+  // 2. Standard Google Sheet URL
+  const sheetInfo = extractGoogleSheetId(clean);
+  if (!sheetInfo) {
+    throw new Error('Invalid Google Sheet URL format');
   }
 
-  const textOrBuffer = await response.text();
-  const workbook = XLSX.read(textOrBuffer, { type: 'string' });
+  const { sheetId, gid } = sheetInfo;
+
+  // Try Endpoints in order of reliability
+  const candidateUrls = [
+    `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&gid=${gid}`,
+    `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&gid=${gid}`)}`
+  ];
+
+  let rawCsvText = null;
+  for (const endpoint of candidateUrls) {
+    try {
+      const resp = await fetch(endpoint, { method: 'GET' });
+      if (resp.ok) {
+        const text = await resp.text();
+        if (text && !text.includes('<!DOCTYPE html>') && text.length > 10) {
+          rawCsvText = text;
+          break;
+        }
+      }
+    } catch (e) {
+      // Try next candidate
+    }
+  }
+
+  if (!rawCsvText) {
+    throw new Error('Could not access Google Sheet. Make sure Share is set to "Anyone with the link can view".');
+  }
+
+  const workbook = XLSX.read(rawCsvText, { type: 'string' });
   const firstSheetName = workbook.SheetNames[0];
   const worksheet = workbook.Sheets[firstSheetName];
   const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
 
   if (!jsonData || jsonData.length === 0) {
-    throw new Error('Google Sheet is empty or contains no readable rows');
+    throw new Error('Google Sheet contains no readable rows');
   }
 
   return jsonData
@@ -251,7 +269,7 @@ export async function fetchLiveSheetData(sheetUrl, defaultTrackId = 'redbullring
 }
 
 /**
- * Pushes a new/updated lap from the Web App to Google Sheets via Apps Script Webhook
+ * Pushes a new/updated lap to Google Sheets via Apps Script Webhook
  */
 export async function pushLapToGoogleSheet(scriptUrl, lapData) {
   if (!scriptUrl || !scriptUrl.includes('script.google.com/macros/s/')) {
@@ -261,21 +279,19 @@ export async function pushLapToGoogleSheet(scriptUrl, lapData) {
   try {
     await fetch(scriptUrl, {
       method: 'POST',
-      mode: 'no-cors', // allows cross-origin POST to Google Apps Script
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(lapData)
     });
     return true;
   } catch (err) {
-    console.warn('Failed to push lap to Google Sheet:', err);
+    console.warn('Google Sheet webhook push warning:', err);
     return false;
   }
 }
 
 /**
- * Parses an Excel / CSV File buffer or ArrayBuffer
+ * Parses an Excel / CSV File buffer
  */
 export async function parseExcelFile(file, defaultTrackId = 'redbullring') {
   return new Promise((resolve, reject) => {
@@ -313,7 +329,7 @@ export async function parseExcelFile(file, defaultTrackId = 'redbullring') {
  * Exports current leaderboard to a styled .xlsx file
  */
 export function exportLeaderboardToExcel(laps, trackName = 'All Stages', includeAdminData = true) {
-  const formattedData = laps.map((lap, idx) => {
+  const formattedData = laps.map((lap) => {
     const row = {
       'Driver Name': lap.driver,
     };
@@ -351,7 +367,7 @@ export function exportLeaderboardToExcel(laps, trackName = 'All Stages', include
 }
 
 /**
- * Generates an official downloadable Excel template for DriftxCommune tournaments
+ * Generates an official downloadable Excel template
  */
 export function downloadTournamentExcelTemplate() {
   const sampleData = [
@@ -409,27 +425,7 @@ export function downloadTournamentExcelTemplate() {
   ];
 
   const worksheet = XLSX.utils.json_to_sheet(sampleData);
-
-  worksheet['!cols'] = [
-    { wch: 22 }, // Driver Name
-    { wch: 16 }, // Mobile Number
-    { wch: 14 }, // Track
-    { wch: 24 }, // Team
-    { wch: 12 }, // Lap Time
-    { wch: 10 }, // S1
-    { wch: 10 }, // S2
-    { wch: 10 }, // S3
-    { wch: 10 }, // Tyre
-    { wch: 12 }, // Sim Rig
-    { wch: 10 }, // Assists
-    { wch: 12 }, // Top Speed
-    { wch: 10 }, // Valid
-    { wch: 25 }, // Notes
-    { wch: 18 }, // Timestamp
-  ];
-
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'TimeTrials');
-
   XLSX.writeFile(workbook, 'DriftxCommune_F1_Template.xlsx');
 }

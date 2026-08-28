@@ -4,10 +4,10 @@ import {
   Share2, 
   Copy, 
   Check, 
-  QrCode, 
   Smartphone, 
-  Flame, 
-  ExternalLink 
+  Link,
+  Sparkles,
+  Layers
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import { TRACKS } from '../utils/constants';
@@ -16,11 +16,12 @@ import { soundEffects } from '../utils/soundFx';
 export default function ShareQrModal({
   onClose,
   selectedTrack,
-  sheetSyncUrl
+  sheetSyncUrl,
+  currentLaps = []
 }) {
   const [copied, setCopied] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState('');
-  const canvasRef = useRef(null);
+  const [shareMode, setShareMode] = useState('live'); // 'live' (with current data) or 'cloud'
 
   const currentTrackData = TRACKS.find(t => t.id === selectedTrack) || TRACKS[0];
 
@@ -30,9 +31,31 @@ export default function ShareQrModal({
     const baseUrl = window.location.origin + window.location.pathname;
     const params = new URLSearchParams();
     params.set('track', selectedTrack);
+
     if (sheetSyncUrl) {
       params.set('sheet', encodeURIComponent(sheetSyncUrl));
+    } else if (currentLaps && currentLaps.length > 0) {
+      // Pack light version of current laps into URL (stripped of sensitive admin notes/phone)
+      try {
+        const lightLaps = currentLaps.map(l => ({
+          d: l.driver,
+          t: l.trackId,
+          l: l.lapTime,
+          s1: l.s1,
+          s2: l.s2,
+          s3: l.s3,
+          tm: l.team,
+          ty: l.tyre,
+          r: l.rig,
+          v: l.validLap ? 1 : 0
+        }));
+        const encoded = btoa(encodeURIComponent(JSON.stringify(lightLaps)));
+        if (encoded.length < 1800) {
+          params.set('d', encoded);
+        }
+      } catch (e) {}
     }
+
     return `${baseUrl}?${params.toString()}`;
   };
 
@@ -40,14 +63,15 @@ export default function ShareQrModal({
 
   useEffect(() => {
     if (shareUrl) {
+      // Generate QR Code with stark contrast for fast mobile camera scanning
       QRCode.toDataURL(shareUrl, {
-        width: 260,
+        width: 280,
         margin: 2,
         color: {
           dark: '#E81728', // DriftxCommune Red
-          light: '#000000'  // Pure Black
+          light: '#FFFFFF'  // White background for 100% instant phone camera detection
         },
-        errorCorrectionLevel: 'H'
+        errorCorrectionLevel: 'M'
       })
       .then(url => setQrDataUrl(url))
       .catch(err => console.error('QR code generation error:', err));
@@ -64,7 +88,7 @@ export default function ShareQrModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto font-tech">
       <div className="relative w-full max-w-md bg-[#080808] border border-red-600/50 rounded-2xl p-6 shadow-2xl my-8">
         
         {/* Header */}
@@ -86,7 +110,7 @@ export default function ShareQrModal({
               soundEffects.playClick();
               onClose();
             }}
-            className="p-1.5 rounded-lg bg-[#141414] hover:bg-neutral-800 text-neutral-400 hover:text-white transition"
+            className="p-1.5 rounded-lg bg-[#141414] hover:bg-neutral-800 text-neutral-400 hover:text-white transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -94,7 +118,7 @@ export default function ShareQrModal({
 
         {/* QR Code Canvas Frame */}
         <div className="my-5 flex flex-col items-center justify-center">
-          <div className="p-3 bg-[#000000] border-2 border-red-600/60 rounded-2xl shadow-xl shadow-red-600/20">
+          <div className="p-3 bg-white border-4 border-red-600 rounded-2xl shadow-2xl shadow-red-600/30">
             {qrDataUrl ? (
               <img 
                 src={qrDataUrl} 
@@ -108,13 +132,13 @@ export default function ShareQrModal({
             )}
           </div>
 
-          <div className="mt-3 text-center">
-            <span className="text-xs font-display font-bold text-white flex items-center justify-center">
-              <Smartphone className="w-3.5 h-3.5 mr-1 text-red-500" />
-              SCAN TO VIEW ON MOBILE
+          <div className="mt-3.5 text-center">
+            <span className="text-sm font-display font-bold text-white flex items-center justify-center">
+              <Smartphone className="w-4 h-4 mr-1.5 text-red-500" />
+              SCAN WITH ANY PHONE CAMERA
             </span>
-            <span className="text-[11px] font-tech text-neutral-400">
-              Opens {currentTrackData.stageBadge} Live Standings
+            <span className="text-xs font-tech text-neutral-400 mt-0.5 block">
+              Opens <strong className="text-white">{currentTrackData.stageBadge}</strong> Live Standings on phone
             </span>
           </div>
         </div>
@@ -134,7 +158,7 @@ export default function ShareQrModal({
             />
             <button
               onClick={handleCopyLink}
-              className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-bold font-tech transition shadow-md ${
+              className={`flex items-center space-x-1.5 px-4 py-2 rounded-xl text-xs font-bold font-tech transition shadow-md cursor-pointer ${
                 copied
                   ? 'bg-red-600 text-white'
                   : 'bg-red-600 hover:bg-red-700 text-white shadow-red-600/30'
@@ -150,7 +174,7 @@ export default function ShareQrModal({
         <div className="mt-6 pt-3 border-t border-neutral-900 flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-[#141414] hover:bg-neutral-800 text-neutral-300 rounded-xl text-xs font-bold transition font-tech"
+            className="px-5 py-2 bg-[#141414] hover:bg-neutral-800 text-neutral-300 rounded-xl text-xs font-bold transition font-tech cursor-pointer"
           >
             Done
           </button>
