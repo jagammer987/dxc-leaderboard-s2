@@ -7,16 +7,19 @@ import {
   RefreshCw, 
   CheckCircle2, 
   ShieldAlert, 
-  ExternalLink, 
   RotateCcw, 
-  Sparkles,
-  Link,
-  HelpCircle
+  Link, 
+  Copy, 
+  Check, 
+  Code2, 
+  HelpCircle,
+  Zap
 } from 'lucide-react';
 import { 
   parseExcelFile, 
   exportLeaderboardToExcel, 
-  downloadTournamentExcelTemplate 
+  downloadTournamentExcelTemplate,
+  GOOGLE_APPS_SCRIPT_CODE
 } from '../utils/excelUtils';
 import { soundEffects } from '../utils/soundFx';
 
@@ -38,6 +41,8 @@ export default function ExcelSyncModal({
   const [importStatus, setImportStatus] = useState(null);
   const [inputUrl, setInputUrl] = useState(sheetSyncUrl || '');
   const [showGuide, setShowGuide] = useState(false);
+  const [showScript, setShowScript] = useState(false);
+  const [copiedScript, setCopiedScript] = useState(false);
   const fileInputRef = useRef(null);
 
   const handleDrag = (e) => {
@@ -97,6 +102,13 @@ export default function ExcelSyncModal({
     }
   };
 
+  const handleCopyScript = () => {
+    soundEffects.playClick();
+    navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_CODE);
+    setCopiedScript(true);
+    setTimeout(() => setCopiedScript(false), 3000);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto font-tech">
       <div className="relative w-full max-w-2xl bg-[#080808] border border-red-600/50 rounded-2xl p-6 shadow-2xl my-8">
@@ -109,10 +121,10 @@ export default function ExcelSyncModal({
             </div>
             <div>
               <h2 className="text-lg font-black font-display text-white uppercase tracking-wider">
-                GOOGLE SHEETS & EXCEL // DRIFT<span className="text-red-600">x</span>COMMUNE
+                GOOGLE SHEETS 2-WAY LIVE SYNC
               </h2>
               <p className="text-xs font-tech text-neutral-400">
-                CENTRAL TOURNAMENT CLOUD DATABASE
+                CENTRAL TOURNAMENT CLOUD DATABASE // DRIFT<span className="text-red-600">x</span>COMMUNE
               </p>
             </div>
           </div>
@@ -146,24 +158,58 @@ export default function ExcelSyncModal({
           </div>
         )}
 
-        <div className="space-y-6 mt-5">
+        <div className="space-y-5 mt-5">
           
           {/* 1. Live Google Sheets Auto-Sync (PRIMARY METHOD) */}
-          <div className="bg-[#000000] border-2 border-red-600/50 rounded-2xl p-4 shadow-xl">
+          <div className="bg-[#000000] border-2 border-red-600/60 rounded-2xl p-4 shadow-xl">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-xs font-black font-display uppercase tracking-wider text-white flex items-center">
                 <Link className="w-4 h-4 mr-1.5 text-red-500" />
-                Live Google Sheet Sync (Cloud Leaderboard)
+                Live Google Sheet Connection
               </h3>
-              <button
-                type="button"
-                onClick={() => setShowGuide(!showGuide)}
-                className="text-xs text-red-400 hover:text-white flex items-center space-x-1"
-              >
-                <HelpCircle className="w-3.5 h-3.5" />
-                <span>{showGuide ? 'Hide Guide' : '3-Step Setup Guide'}</span>
-              </button>
+              
+              <div className="flex items-center space-x-3 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setShowScript(!showScript)}
+                  className="text-red-400 hover:text-white flex items-center space-x-1 font-bold"
+                >
+                  <Zap className="w-3.5 h-3.5 text-yellow-400" />
+                  <span>{showScript ? 'Hide 2-Way Script' : 'Enable 2-Way Sync'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowGuide(!showGuide)}
+                  className="text-neutral-400 hover:text-white flex items-center space-x-1"
+                >
+                  <HelpCircle className="w-3.5 h-3.5" />
+                  <span>{showGuide ? 'Hide Guide' : 'Setup Guide'}</span>
+                </button>
+              </div>
             </div>
+
+            {/* 2-Way Sync Script Helper */}
+            {showScript && (
+              <div className="bg-[#0D0506] border border-red-600/60 rounded-xl p-4 mb-3 text-xs space-y-2 text-neutral-300">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white uppercase text-[11px] flex items-center">
+                    <Code2 className="w-4 h-4 mr-1.5 text-red-500" />
+                    Google Apps Script (Enables 2-Way Push from Web to Sheet)
+                  </span>
+                  <button
+                    onClick={handleCopyScript}
+                    className="flex items-center space-x-1 px-2.5 py-1 rounded bg-red-600 hover:bg-red-700 text-white font-bold text-[11px] transition shadow"
+                  >
+                    {copiedScript ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedScript ? 'COPIED!' : 'Copy Script'}</span>
+                  </button>
+                </div>
+                <p className="text-[11px] text-neutral-400">
+                  Inside your Google Sheet, go to <strong>Extensions ➔ Apps Script</strong>, paste this code, and click <strong>Deploy ➔ New Deployment ➔ Web App ➔ Who has access: Anyone</strong>. Paste the generated Web App URL into the box below!
+                </p>
+              </div>
+            )}
 
             {/* Quick 3-Step Setup Guide */}
             {showGuide && (
@@ -175,11 +221,11 @@ export default function ExcelSyncModal({
                 </div>
                 <div className="flex items-start space-x-2">
                   <span className="w-4 h-4 rounded-full bg-red-600 text-white font-bold text-[10px] flex items-center justify-center shrink-0">2</span>
-                  <span>In Google Sheets, click <strong>Share ➔ General Access ➔ "Anyone with the link can view"</strong>.</span>
+                  <span>In Google Sheets, click <strong>Share ➔ General Access ➔ Set to "Anyone with the link can view"</strong>.</span>
                 </div>
                 <div className="flex items-start space-x-2">
                   <span className="w-4 h-4 rounded-full bg-red-600 text-white font-bold text-[10px] flex items-center justify-center shrink-0">3</span>
-                  <span>Copy that link and paste it into the box below. That's it! Every racer's phone will fetch live updates automatically.</span>
+                  <span>Copy that link and paste it into the box below. Click <strong>Connect & Sync</strong>.</span>
                 </div>
               </div>
             )}
@@ -187,7 +233,7 @@ export default function ExcelSyncModal({
             <div className="space-y-3">
               <div>
                 <label className="text-xs font-bold text-neutral-300 block mb-1">
-                  Google Sheet Share Link
+                  Google Sheet Share Link or Apps Script Webhook URL
                 </label>
                 <div className="flex items-center space-x-2">
                   <input

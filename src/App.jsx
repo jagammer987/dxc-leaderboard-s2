@@ -18,7 +18,7 @@ import {
   TOURNAMENT_INFO 
 } from './utils/constants';
 import { analyzeLeaderboard, parseLapInput } from './utils/timeUtils';
-import { fetchLiveSheetData } from './utils/excelUtils';
+import { fetchLiveSheetData, pushLapToGoogleSheet } from './utils/excelUtils';
 import { isAdminAuthenticated, logoutAdminSession } from './utils/securityUtils';
 import { soundEffects } from './utils/soundFx';
 import { Search, X, ChevronUp, Layers, List } from 'lucide-react';
@@ -41,9 +41,9 @@ export default function App() {
       const params = new URLSearchParams(window.location.search);
       const urlSheet = params.get('sheet');
       if (urlSheet) return decodeURIComponent(urlSheet);
-      return localStorage.getItem('driftx_sheet_url') || '';
+      return localStorage.getItem('driftx_sheet_url') || TOURNAMENT_INFO.defaultGoogleSheetUrl || '';
     }
-    return '';
+    return TOURNAMENT_INFO.defaultGoogleSheetUrl || '';
   });
 
   const [customLogo, setCustomLogo] = useState(() => {
@@ -73,7 +73,9 @@ export default function App() {
     return INITIAL_LEADERBOARD;
   });
 
-  const [autoRefreshInterval, setAutoRefreshInterval] = useState(0);
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState(() => {
+    return 10; // Default: 10 seconds live cloud polling
+  });
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState(null);
   const [isMuted, setIsMuted] = useState(false);
@@ -108,11 +110,9 @@ export default function App() {
   // 3. Secret Keyboard Shortcut (Ctrl + Shift + A) to open Marshal Login
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Escape for Kiosk
       if (e.key === 'Escape' && isKioskMode) {
         setIsKioskMode(false);
       }
-      // Ctrl + Shift + A (or Command + Shift + A) triggers Stealth Admin Login
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'A' || e.key === 'a')) {
         e.preventDefault();
         soundEffects.playClick();
@@ -157,7 +157,7 @@ export default function App() {
     }
   }, [selectedTrack, sheetSyncUrl]);
 
-  // 5. Live Google Sheet Polling
+  // 5. Live Google Sheet Polling (2-Way Fetch)
   const syncSheetData = useCallback(async (urlToFetch) => {
     const targetUrl = urlToFetch || sheetSyncUrl;
     if (!targetUrl) return;
@@ -170,7 +170,7 @@ export default function App() {
         setLastSyncTime(new Date().toLocaleTimeString());
       }
     } catch (err) {
-      console.warn('Sheet sync warning:', err.message);
+      console.warn('Sheet sync fetch warning:', err.message);
     } finally {
       setIsSyncing(false);
     }
@@ -180,7 +180,7 @@ export default function App() {
     if (sheetSyncUrl) {
       syncSheetData(sheetSyncUrl);
     }
-  }, []);
+  }, [sheetSyncUrl, syncSheetData]);
 
   useEffect(() => {
     if (autoRefreshInterval > 0 && sheetSyncUrl) {
@@ -239,10 +239,16 @@ export default function App() {
     return trackLeaderboard.find(l => l.id === pinnedDriverId) || null;
   }, [trackLeaderboard, pinnedDriverId]);
 
-  // Lap Actions with Anti-Duplicate Logic
+  // Lap Actions with Anti-Duplicate & 2-Way Google Sheet Push
   const handleAddLap = (newLap, isUpdate = false) => {
     if (!isAdmin) return;
 
+    // 1. Push to Google Sheet in background if Webhook is configured
+    if (sheetSyncUrl) {
+      pushLapToGoogleSheet(sheetSyncUrl, newLap);
+    }
+
+    // 2. Update local state
     setLaps(prev => {
       const cleanPhone = newLap.phone ? newLap.phone.replace(/[^0-9]/g, '') : '';
       
@@ -361,7 +367,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#000000] text-white flex flex-col justify-between selection:bg-red-600 selection:text-white pb-16 md:pb-0">
       
-      {/* Header (Zero Admin Buttons visible in Public mode) */}
+      {/* Header */}
       <Header
         selectedTrack={selectedTrack}
         setSelectedTrack={setSelectedTrack}
