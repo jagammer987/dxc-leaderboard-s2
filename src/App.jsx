@@ -21,7 +21,7 @@ import { analyzeLeaderboard, parseLapInput } from './utils/timeUtils';
 import { fetchLiveSheetData, pushLapToGoogleSheet } from './utils/excelUtils';
 import { isAdminAuthenticated, logoutAdminSession } from './utils/securityUtils';
 import { soundEffects } from './utils/soundFx';
-import { Search, X, ChevronUp, Layers, List } from 'lucide-react';
+import { Search, X, ChevronUp, Layers, List, CheckCircle2 } from 'lucide-react';
 
 export default function App() {
   // 1. Initial State from URL params or LocalStorage
@@ -83,6 +83,7 @@ export default function App() {
   const [viewMode, setViewMode] = useState('cards');
   const [pinnedDriverId, setPinnedDriverId] = useState(null);
   const [mobileSearch, setMobileSearch] = useState('');
+  const [toastMessage, setToastMessage] = useState(null);
 
   // Modals
   const [showAdminModal, setShowAdminModal] = useState(false);
@@ -157,7 +158,7 @@ export default function App() {
     }
   }, [selectedTrack, sheetSyncUrl]);
 
-  // 5. Live Google Sheet Polling (Intelligent Merge)
+  // 5. Live Google Sheet Polling (Intelligent Merge - Never Revert Local Laps)
   const syncSheetData = useCallback(async (urlToFetch) => {
     const targetUrl = urlToFetch || sheetSyncUrl;
     if (!targetUrl) return;
@@ -166,20 +167,33 @@ export default function App() {
       setIsSyncing(true);
       const fetchedLaps = await fetchLiveSheetData(targetUrl, selectedTrack);
       if (fetchedLaps && fetchedLaps.length > 0) {
-        // Merge fetched sheet laps with local laps
         setLaps(prev => {
-          const merged = [...fetchedLaps];
-          // Keep any local laps from other tracks that weren't in the fetched sheet
-          prev.forEach(pLap => {
-            const exists = merged.some(m => 
-              m.trackId === pLap.trackId && 
-              m.driver.toLowerCase().trim() === pLap.driver.toLowerCase().trim()
-            );
-            if (!exists) {
-              merged.push(pLap);
+          const mergedMap = new Map();
+
+          // A. Insert fetched sheet laps
+          fetchedLaps.forEach(lap => {
+            const key = `${lap.trackId}_${lap.driver.toLowerCase().trim()}`;
+            mergedMap.set(key, lap);
+          });
+
+          // B. Merge with local laps (preserve faster times & local entries)
+          prev.forEach(localLap => {
+            const key = `${localLap.trackId}_${localLap.driver.toLowerCase().trim()}`;
+            if (!mergedMap.has(key)) {
+              mergedMap.set(key, localLap);
+            } else {
+              const sheetLap = mergedMap.get(key);
+              const localMs = parseLapInput(localLap.lapTime) || localLap.lapMs || Infinity;
+              const sheetMs = parseLapInput(sheetLap.lapTime) || sheetLap.lapMs || Infinity;
+              
+              // If local lap is faster or newer, keep the local version
+              if (localMs <= sheetMs) {
+                mergedMap.set(key, { ...sheetLap, ...localLap });
+              }
             }
           });
-          return merged;
+
+          return Array.from(mergedMap.values());
         });
         setLastSyncTime(new Date().toLocaleTimeString());
       }
@@ -253,16 +267,24 @@ export default function App() {
     return trackLeaderboard.find(l => l.id === pinnedDriverId) || null;
   }, [trackLeaderboard, pinnedDriverId]);
 
-  // Record Lap Action
+  // Toast Helper
+  const showToast = (msg) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 4000);
+  };
+
+  // Record Lap Action (Supports Unlimited Entries & Updates)
   const handleAddLap = (newLap, isUpdate = false) => {
-    // 1. Immediately update React state and LocalStorage
     setLaps(prev => {
       const cleanPhone = newLap.phone ? newLap.phone.replace(/[^0-9]/g, '') : '';
-      
+      const driverName = newLap.driver.toLowerCase().trim();
+
       const existingIndex = prev.findIndex(l => 
         l.trackId === newLap.trackId && (
           (cleanPhone && l.phone && l.phone.replace(/[^0-9]/g, '') === cleanPhone) ||
-          (!cleanPhone && l.driver.toLowerCase().trim() === newLap.driver.toLowerCase().trim())
+          (driverName && l.driver.toLowerCase().trim() === driverName)
         )
       );
 
@@ -281,14 +303,18 @@ export default function App() {
           s1: newLap.s1 || existingLap.s1,
           s2: newLap.s2 || existingLap.s2,
           s3: newLap.s3 || existingLap.s3,
+          timestamp: new Date().toISOString().slice(0, 16).replace('T', ' ')
         };
         return updated;
       }
 
+      // Prepend brand new lap
       return [newLap, ...prev];
     });
 
-    // 2. Also push to Google Sheet Webhook if active
+    showToast(`⏱️ Lap recorded: ${newLap.driver} (${newLap.lapTime})`);
+
+    // Also push to Google Sheet Webhook if active
     if (sheetSyncUrl) {
       pushLapToGoogleSheet(sheetSyncUrl, newLap);
     }
@@ -297,13 +323,16 @@ export default function App() {
   const handleDeleteLap = (lapId) => {
     if (!isAdmin) return;
     setLaps(prev => prev.filter(l => l.id !== lapId));
+    showToast('🗑️ Lap entry deleted');
   };
 
   const handleToggleLapValidity = (lapId) => {
     if (!isAdmin) return;
     setLaps(prev => prev.map(l => {
       if (l.id === lapId) {
-        return { ...l, validLap: !l.validLap };
+        const nextValid = !l.validLap;
+        showToast(nextValid ? '✅ Lap validated' : '⚠️ Lap invalidated');
+        return { ...l, validLap: nextValid };
       }
       return l;
     }));
@@ -335,12 +364,14 @@ export default function App() {
       });
       return merged;
     });
+    showToast(`📥 Imported ${importedLaps.length} laps`);
   };
 
   const handleResetToDefault = () => {
     if (!isAdmin) return;
     setLaps(INITIAL_LEADERBOARD);
     localStorage.removeItem('driftx_f1_laps_v4');
+    showToast('🔄 Reset leaderboard to default seed data');
   };
 
   const handleTogglePinDriver = (driverId) => {
@@ -363,6 +394,7 @@ export default function App() {
   const handleLogoutAdmin = () => {
     logoutAdminSession();
     setIsAdmin(false);
+    showToast('🔒 Locked Marshal Console');
   };
 
   if (isKioskMode) {
@@ -380,6 +412,14 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#000000] text-white flex flex-col justify-between selection:bg-red-600 selection:text-white pb-16 md:pb-0">
       
+      {/* Toast Notification Banner */}
+      {toastMessage && (
+        <div className="fixed top-20 right-4 z-50 bg-[#0D0506] border-2 border-red-600 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center space-x-2.5 font-tech text-xs animate-in slide-in-from-top duration-200">
+          <CheckCircle2 className="w-4 h-4 text-red-500 shrink-0" />
+          <span className="font-bold">{toastMessage}</span>
+        </div>
+      )}
+
       {/* Header */}
       <Header
         selectedTrack={selectedTrack}
