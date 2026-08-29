@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Header from './components/Header';
 import PodiumTop3 from './components/PodiumTop3';
 import LeaderboardTable from './components/LeaderboardTable';
-import MobileRacerCards from './components/MobileRacerCards';
 import TelemetryModal from './components/TelemetryModal';
 import AdminLapEntryModal from './components/AdminLapEntryModal';
 import AdminLoginModal from './components/AdminLoginModal';
@@ -17,11 +16,11 @@ import {
   INITIAL_LEADERBOARD, 
   TOURNAMENT_INFO 
 } from './utils/constants';
-import { analyzeLeaderboard, parseLapInput } from './utils/timeUtils';
+import { analyzeLeaderboard } from './utils/timeUtils';
 import { fetchLiveSheetData, pushLapToGoogleSheet } from './utils/excelUtils';
 import { isAdminAuthenticated, logoutAdminSession } from './utils/securityUtils';
 import { soundEffects } from './utils/soundFx';
-import { Search, X, ChevronUp, Layers, List, CheckCircle2 } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 
 export default function App() {
   // 1. Initial Track State
@@ -36,7 +35,6 @@ export default function App() {
     return 'redbullring';
   });
 
-  // Always point to the official Google Sheet Web App by default
   const [sheetSyncUrl, setSheetSyncUrl] = useState(() => {
     return TOURNAMENT_INFO.defaultGoogleSheetUrl;
   });
@@ -53,18 +51,26 @@ export default function App() {
     return isAdminAuthenticated();
   });
 
-  // Laps State (Loaded live from Cloud Google Sheet)
-  const [laps, setLaps] = useState([]);
+  // Instant 0ms Cache Hydration: Load cached data immediately, then update from Cloud
+  const [laps, setLaps] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('driftx_f1_laps_v4');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch (e) {}
+    }
+    return INITIAL_LEADERBOARD;
+  });
 
-  // Auto-refresh every 3 seconds for lightning-fast multi-device sync
-  const [autoRefreshInterval, setAutoRefreshInterval] = useState(3);
+  // Auto-refresh every 4 seconds for instant real-time sync
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState(4);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isKioskMode, setIsKioskMode] = useState(false);
-  const [viewMode, setViewMode] = useState('cards');
-  const [pinnedDriverId, setPinnedDriverId] = useState(null);
-  const [mobileSearch, setMobileSearch] = useState('');
   const [toastMessage, setToastMessage] = useState(null);
 
   // Modals
@@ -119,7 +125,7 @@ export default function App() {
     }
   }, [selectedTrack]);
 
-  // 5. Live Cloud Google Sheet Fetch (True Source of Truth)
+  // 5. Fast Cloud Google Sheet Polling
   const syncSheetData = useCallback(async () => {
     const targetUrl = sheetSyncUrl || TOURNAMENT_INFO.defaultGoogleSheetUrl;
     if (!targetUrl) return;
@@ -129,6 +135,9 @@ export default function App() {
       const fetchedLaps = await fetchLiveSheetData(targetUrl, selectedTrack);
       if (fetchedLaps && Array.isArray(fetchedLaps)) {
         setLaps(fetchedLaps);
+        try {
+          localStorage.setItem('driftx_f1_laps_v4', JSON.stringify(fetchedLaps));
+        } catch (e) {}
         setLastSyncTime(new Date().toLocaleTimeString());
       }
     } catch (err) {
@@ -138,12 +147,12 @@ export default function App() {
     }
   }, [sheetSyncUrl, selectedTrack]);
 
-  // Trigger sync on load immediately
+  // Run on mount immediately
   useEffect(() => {
     syncSheetData();
   }, [syncSheetData]);
 
-  // 3-Second Background Cloud Sync Loop
+  // 4-Second Live Cloud Polling Loop
   useEffect(() => {
     if (autoRefreshInterval > 0) {
       const intervalId = setInterval(() => {
@@ -185,22 +194,6 @@ export default function App() {
     return Infinity;
   }, [top3Drivers]);
 
-  // Filtered leaderboard for search
-  const filteredLeaderboard = useMemo(() => {
-    if (!mobileSearch.trim()) return trackLeaderboard;
-    const q = mobileSearch.toLowerCase().trim();
-    return trackLeaderboard.filter(l => 
-      l.driver.toLowerCase().includes(q) ||
-      (isAdmin && l.phone && l.phone.includes(q)) ||
-      (l.team && l.team.toLowerCase().includes(q))
-    );
-  }, [trackLeaderboard, mobileSearch, isAdmin]);
-
-  const pinnedDriver = useMemo(() => {
-    if (!pinnedDriverId) return null;
-    return trackLeaderboard.find(l => l.id === pinnedDriverId) || null;
-  }, [trackLeaderboard, pinnedDriverId]);
-
   // Toast Helper
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -209,7 +202,7 @@ export default function App() {
     }, 4000);
   };
 
-  // Record Lap Action (Optimistic Update + Push to Google Sheet)
+  // Record Lap Action (Optimistic UI Update + Background Google Sheet Push)
   const handleAddLap = async (newLap) => {
     if (newLap.trackId) {
       setSelectedTrack(newLap.trackId);
@@ -227,12 +220,16 @@ export default function App() {
         return true;
       });
 
-      return [newLap, ...filtered];
+      const updated = [newLap, ...filtered];
+      try {
+        localStorage.setItem('driftx_f1_laps_v4', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
     });
 
     showToast(`⏱️ Lap recorded: ${newLap.driver} (${newLap.lapTime})`);
 
-    // 2. Push to Google Sheet
+    // 2. Push to Google Sheet in background
     const targetUrl = sheetSyncUrl || TOURNAMENT_INFO.defaultGoogleSheetUrl;
     if (targetUrl) {
       await pushLapToGoogleSheet(targetUrl, newLap);
@@ -242,20 +239,32 @@ export default function App() {
 
   const handleDeleteLap = (lapId) => {
     if (!isAdmin) return;
-    setLaps(prev => prev.filter(l => l.id !== lapId));
+    setLaps(prev => {
+      const updated = prev.filter(l => l.id !== lapId);
+      try {
+        localStorage.setItem('driftx_f1_laps_v4', JSON.stringify(updated));
+      } catch(e) {}
+      return updated;
+    });
     showToast('🗑️ Lap entry deleted');
   };
 
   const handleToggleLapValidity = (lapId) => {
     if (!isAdmin) return;
-    setLaps(prev => prev.map(l => {
-      if (l.id === lapId) {
-        const nextValid = !l.validLap;
-        showToast(nextValid ? '✅ Lap validated' : '⚠️ Lap invalidated');
-        return { ...l, validLap: nextValid };
-      }
-      return l;
-    }));
+    setLaps(prev => {
+      const updated = prev.map(l => {
+        if (l.id === lapId) {
+          const nextValid = !l.validLap;
+          showToast(nextValid ? '✅ Lap validated' : '⚠️ Lap invalidated');
+          return { ...l, validLap: nextValid };
+        }
+        return l;
+      });
+      try {
+        localStorage.setItem('driftx_f1_laps_v4', JSON.stringify(updated));
+      } catch(e) {}
+      return updated;
+    });
   };
 
   const handleImportLaps = (importedLaps) => {
@@ -277,6 +286,9 @@ export default function App() {
           merged.push(newLap);
         }
       });
+      try {
+        localStorage.setItem('driftx_f1_laps_v4', JSON.stringify(merged));
+      } catch(e) {}
       return merged;
     });
     showToast(`📥 Imported ${importedLaps.length} laps`);
@@ -285,24 +297,8 @@ export default function App() {
   const handleResetToDefault = () => {
     if (!isAdmin) return;
     setLaps([]);
+    localStorage.removeItem('driftx_f1_laps_v4');
     showToast('🔄 Cleared leaderboard');
-  };
-
-  const handleTogglePinDriver = (driverId) => {
-    if (pinnedDriverId === driverId) {
-      setPinnedDriverId(null);
-    } else {
-      setPinnedDriverId(driverId);
-    }
-  };
-
-  const scrollToPinnedDriver = () => {
-    if (pinnedDriverId) {
-      const el = document.getElementById(`driver-card-${pinnedDriverId}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    }
   };
 
   const handleLogoutAdmin = () => {
@@ -324,7 +320,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#000000] text-white flex flex-col justify-between selection:bg-red-600 selection:text-white pb-16 md:pb-0 font-tech">
+    <div className="min-h-screen bg-[#000000] text-white flex flex-col justify-between selection:bg-red-600 selection:text-white pb-12 sm:pb-0 font-tech">
       
       {/* Toast Notification Banner */}
       {toastMessage && (
@@ -355,11 +351,11 @@ export default function App() {
         onLogoutAdmin={handleLogoutAdmin}
       />
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6 w-full flex-1">
+      {/* Main Content: Top 3 Cards + Standings Table */}
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6 w-full flex-1 space-y-5">
         
         {/* Stage Info Header Banner */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 bg-[#080808] border border-neutral-900 rounded-2xl p-4 shadow-xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#080808] border border-neutral-900 rounded-2xl p-4 shadow-xl">
           <div>
             <div className="text-[11px] sm:text-xs font-mono font-bold text-red-500 uppercase tracking-wider flex items-center space-x-1.5">
               <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse"></span>
@@ -386,135 +382,25 @@ export default function App() {
           </div>
         </div>
 
-        {/* Top 3 Podium */}
+        {/* 1. TOP 3 IN CARD FORM */}
         <PodiumTop3
           top3={top3Drivers}
           onSelectDriver={(driver) => setSelectedDriverTelemetry(driver)}
         />
 
-        {/* Search & View Switcher */}
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <div className="relative flex-1">
-            <Search className="w-3.5 h-3.5 text-neutral-500 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder={isAdmin ? "Search driver name, phone, team..." : "Search driver name or team..."}
-              value={mobileSearch}
-              onChange={(e) => setMobileSearch(e.target.value)}
-              className="w-full bg-[#080808] border border-neutral-900 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-red-600 font-tech"
-            />
-            {mobileSearch && (
-              <button 
-                onClick={() => setMobileSearch('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Desktop/Tablet View Switcher */}
-          <div className="hidden sm:flex bg-[#080808] border border-neutral-900 p-1 rounded-xl">
-            <button
-              onClick={() => setViewMode('cards')}
-              className={`px-3 py-1 rounded-lg text-xs font-tech font-bold transition flex items-center space-x-1 cursor-pointer ${
-                viewMode === 'cards' ? 'bg-red-600 text-white' : 'text-neutral-400 hover:text-white'
-              }`}
-            >
-              <Layers className="w-3.5 h-3.5" />
-              <span>Cards</span>
-            </button>
-            <button
-              onClick={() => setViewMode('table')}
-              className={`px-3 py-1 rounded-lg text-xs font-tech font-bold transition flex items-center space-x-1 cursor-pointer ${
-                viewMode === 'table' ? 'bg-red-600 text-white' : 'text-neutral-400 hover:text-white'
-              }`}
-            >
-              <List className="w-3.5 h-3.5" />
-              <span>Table</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Dynamic Leaderboard Rendering */}
-        <div className="block sm:hidden">
-          <MobileRacerCards
-            leaderboard={filteredLeaderboard}
-            onSelectDriver={(driver) => setSelectedDriverTelemetry(driver)}
-            pinnedDriverId={pinnedDriverId}
-            onTogglePinDriver={handleTogglePinDriver}
-            isAdmin={isAdmin}
-            onDeleteLap={handleDeleteLap}
-            onToggleLapValidity={handleToggleLapValidity}
-          />
-        </div>
-
-        <div className="hidden sm:block">
-          {viewMode === 'table' ? (
-            <LeaderboardTable
-              leaderboard={filteredLeaderboard}
-              onSelectDriver={(driver) => setSelectedDriverTelemetry(driver)}
-              onDeleteLap={handleDeleteLap}
-              onToggleLapValidity={handleToggleLapValidity}
-              currentTrack={currentTrackData}
-              isAdmin={isAdmin}
-            />
-          ) : (
-            <MobileRacerCards
-              leaderboard={filteredLeaderboard}
-              onSelectDriver={(driver) => setSelectedDriverTelemetry(driver)}
-              pinnedDriverId={pinnedDriverId}
-              onTogglePinDriver={handleTogglePinDriver}
-              isAdmin={isAdmin}
-              onDeleteLap={handleDeleteLap}
-              onToggleLapValidity={handleToggleLapValidity}
-            />
-          )}
-        </div>
+        {/* 2. FULL STANDINGS IN TABLE FORM (DESKTOP & MOBILE) */}
+        <LeaderboardTable
+          leaderboard={trackLeaderboard}
+          onSelectDriver={(driver) => setSelectedDriverTelemetry(driver)}
+          onDeleteLap={handleDeleteLap}
+          onToggleLapValidity={handleToggleLapValidity}
+          currentTrack={currentTrackData}
+          isAdmin={isAdmin}
+        />
       </main>
 
-      {/* Sticky Pinned Driver Bottom HUD */}
-      {pinnedDriver && (
-        <div className="fixed bottom-0 inset-x-0 z-40 bg-[#000000]/95 border-t border-red-600 p-3 backdrop-blur-lg shadow-2xl animate-in slide-in-from-bottom">
-          <div className="max-w-7xl mx-auto flex items-center justify-between font-tech">
-            <div className="flex items-center space-x-3 min-w-0 flex-1">
-              <div className="w-7 h-7 rounded-lg bg-red-600 text-white font-display font-black text-xs flex items-center justify-center shrink-0">
-                P{pinnedDriver.position}
-              </div>
-              <div className="min-w-0">
-                <div className="font-bold text-white text-sm truncate">
-                  {pinnedDriver.driver}
-                </div>
-                <div className="text-xs text-neutral-300 flex items-center space-x-2 font-mono-num">
-                  <span className="text-white font-bold">{pinnedDriver.lapTime}</span>
-                  <span>•</span>
-                  <span>Gap: {pinnedDriver.gapToLeader}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={scrollToPinnedDriver}
-                className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition shadow-md shadow-red-600/40 cursor-pointer"
-              >
-                <ChevronUp className="w-3.5 h-3.5" />
-                <span>Jump</span>
-              </button>
-              <button
-                onClick={() => setPinnedDriverId(null)}
-                className="p-1.5 rounded-lg bg-[#141414] hover:bg-neutral-800 text-neutral-400 hover:text-white border border-neutral-800 cursor-pointer"
-                title="Unpin"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Clean Minimal Footer */}
-      <footer className="w-full bg-[#050505] border-t border-neutral-900 py-4 text-xs font-tech text-neutral-500 text-center">
+      <footer className="w-full bg-[#050505] border-t border-neutral-900 py-4 text-xs font-tech text-neutral-500 text-center mt-6">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>DRIFT<span className="text-red-600 font-bold">x</span>COMMUNE // F1 SIM TOURNAMENT</span>
           <span className="text-neutral-400">{TOURNAMENT_INFO.stages}</span>
