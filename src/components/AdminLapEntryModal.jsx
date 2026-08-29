@@ -8,7 +8,9 @@ import {
   UserCheck,
   CheckCircle2,
   Sliders,
-  Type
+  Type,
+  Zap,
+  Gauge
 } from 'lucide-react';
 import { 
   TRACKS, 
@@ -16,7 +18,7 @@ import {
   TYRE_COMPOUNDS, 
   RIGS 
 } from '../utils/constants';
-import { parseLapInput, formatLapTime } from '../utils/timeUtils';
+import { parseLapInput, formatLapTime, parseSectorToMs, formatSectorMs } from '../utils/timeUtils';
 import { soundEffects } from '../utils/soundFx';
 
 export default function AdminLapEntryModal({
@@ -41,6 +43,12 @@ export default function AdminLapEntryModal({
 
   // Single text state
   const [singleText, setSingleText] = useState('1:03.400');
+
+  // Sector Times (Optional)
+  const [showSectors, setShowSectors] = useState(false);
+  const [s1, setS1] = useState('');
+  const [s2, setS2] = useState('');
+  const [s3, setS3] = useState('');
 
   const [tyre, setTyre] = useState('SOFT');
   const [rig, setRig] = useState('Rig 1');
@@ -72,6 +80,28 @@ export default function AdminLapEntryModal({
 
   const calculatedMs = getCalculatedMs();
 
+  // Auto-calculate Lap Time from S1 + S2 + S3 if all 3 provided
+  const handleAutoCalcFromSectors = () => {
+    const s1Ms = parseSectorToMs(s1);
+    const s2Ms = parseSectorToMs(s2);
+    const s3Ms = parseSectorToMs(s3);
+
+    if (s1Ms !== Infinity && s2Ms !== Infinity && s3Ms !== Infinity) {
+      const totalMs = s1Ms + s2Ms + s3Ms;
+      const totalSeconds = totalMs / 1000;
+      const m = Math.floor(totalSeconds / 60);
+      const remSec = totalSeconds % 60;
+      const secInt = Math.floor(remSec);
+      const msInt = Math.round((remSec - secInt) * 1000);
+
+      setMins(String(m));
+      setSecs(secInt < 10 ? `0${secInt}` : String(secInt));
+      setMillis(msInt < 100 ? String(msInt).padStart(3, '0') : String(msInt));
+      setSingleText(formatLapTime(totalMs));
+      soundEffects.playClick();
+    }
+  };
+
   // Auto-detect existing driver by mobile number or name for this stage
   useEffect(() => {
     const cleanPhone = phone.replace(/[^0-9]/g, '').trim();
@@ -97,6 +127,9 @@ export default function AdminLapEntryModal({
       if (match.team) {
         setTeam(match.team);
       }
+      if (match.s1 && !s1) setS1(match.s1);
+      if (match.s2 && !s2) setS2(match.s2);
+      if (match.s3 && !s3) setS3(match.s3);
     } else {
       setDuplicateInfo(null);
     }
@@ -122,6 +155,11 @@ export default function AdminLapEntryModal({
     const cleanPhone = phone.replace(/[^0-9]/g, '').trim();
     const formattedTime = formatLapTime(ms);
 
+    // Format clean sector strings if entered
+    const cleanS1 = s1.trim() ? (parseSectorToMs(s1) !== Infinity ? formatSectorMs(parseSectorToMs(s1)) : s1.trim()) : '';
+    const cleanS2 = s2.trim() ? (parseSectorToMs(s2) !== Infinity ? formatSectorMs(parseSectorToMs(s2)) : s2.trim()) : '';
+    const cleanS3 = s3.trim() ? (parseSectorToMs(s3) !== Infinity ? formatSectorMs(parseSectorToMs(s3)) : s3.trim()) : '';
+
     const newLap = {
       id: `lap-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
       driver: driver.trim(),
@@ -130,9 +168,9 @@ export default function AdminLapEntryModal({
       team: team || 'DriftxCommune Racing',
       lapTime: formattedTime,
       lapMs: ms,
-      s1: '',
-      s2: '',
-      s3: '',
+      s1: cleanS1,
+      s2: cleanS2,
+      s3: cleanS3,
       tyre: tyre || 'SOFT',
       rig: rig || 'Rig 1',
       assists: 'NONE',
@@ -150,25 +188,25 @@ export default function AdminLapEntryModal({
       }
     } catch (err) {}
 
-    // Invoke callback to add lap to App state
+    // Invoke callback to add lap to App state & push to Google Sheet
     onAddLap(newLap);
     onClose();
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-md overflow-y-auto font-tech">
-      <div className="relative w-full max-w-lg bg-[#080808] border-2 border-red-600/80 rounded-2xl p-6 shadow-2xl my-8">
+      <div className="relative w-full max-w-lg bg-[#080808] border-2 border-red-600/80 rounded-2xl p-5 sm:p-6 shadow-2xl my-8">
         
         {/* Modal Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-neutral-900">
+        <div className="flex items-center justify-between pb-3 border-b border-neutral-900">
           <div className="flex items-center space-x-2">
             <div className="w-3 h-3 rounded-full bg-red-600 animate-pulse"></div>
             <div>
-              <h2 className="text-lg font-black font-display text-white uppercase tracking-wider">
+              <h2 className="text-base sm:text-lg font-black font-display text-white uppercase tracking-wider">
                 LOG HOTLAP // DRIFT<span className="text-red-600">x</span>COMMUNE
               </h2>
-              <p className="text-xs font-tech text-neutral-400">
-                FAST MARSHAL ENTRY
+              <p className="text-[11px] font-tech text-neutral-400">
+                OFFICIAL MARSHAL ENTRY
               </p>
             </div>
           </div>
@@ -187,7 +225,7 @@ export default function AdminLapEntryModal({
 
         {/* Duplicate Driver PB Notice */}
         {duplicateInfo && (
-          <div className="mt-4 p-3 bg-red-950/50 border border-red-600/70 rounded-xl text-xs font-tech text-white flex items-start space-x-2">
+          <div className="mt-3.5 p-3 bg-red-950/50 border border-red-600/70 rounded-xl text-xs font-tech text-white flex items-start space-x-2">
             <UserCheck className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
             <div>
               <span className="font-bold text-red-400 block uppercase">
@@ -202,14 +240,14 @@ export default function AdminLapEntryModal({
 
         {/* Error Alert */}
         {error && (
-          <div className="mt-4 p-3 bg-red-950 border border-red-600 text-red-200 rounded-xl text-xs flex items-center space-x-2">
+          <div className="mt-3.5 p-3 bg-red-950 border border-red-600 text-red-200 rounded-xl text-xs flex items-center space-x-2">
             <ShieldAlert className="w-4 h-4 shrink-0 text-red-400" />
             <span className="font-bold">{error}</span>
           </div>
         )}
 
         {/* Entry Form */}
-        <div className="mt-4 space-y-4">
+        <div className="mt-3.5 space-y-3.5">
           
           {/* 1. Track Stage */}
           <div>
@@ -247,15 +285,15 @@ export default function AdminLapEntryModal({
               type="text"
               required
               autoFocus
-              placeholder="e.g. Aarav Sharma"
+              placeholder="e.g. Rishabh Sharma"
               value={driver}
               onChange={(e) => setDriver(e.target.value)}
-              className="w-full bg-[#000000] border-2 border-neutral-700 focus:border-red-600 rounded-xl px-4 py-2.5 text-sm text-white font-bold placeholder-neutral-600 focus:outline-none"
+              className="w-full bg-[#000000] border-2 border-neutral-700 focus:border-red-600 rounded-xl px-3.5 py-2 text-sm text-white font-bold placeholder-neutral-600 focus:outline-none"
             />
           </div>
 
           {/* 3. LAP TIME ENTRY (3 NUMBER BOXES) */}
-          <div className="bg-[#000000] border-2 border-red-600/60 rounded-xl p-4">
+          <div className="bg-[#000000] border-2 border-red-600/60 rounded-xl p-3.5">
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-black text-red-500 uppercase tracking-wider flex items-center">
                 <Timer className="w-4 h-4 mr-1.5" />
@@ -299,7 +337,7 @@ export default function AdminLapEntryModal({
                       max="5"
                       value={mins}
                       onChange={(e) => setMins(e.target.value)}
-                      className="w-full bg-[#080808] border-2 border-neutral-700 focus:border-red-600 rounded-xl py-2.5 text-center text-xl text-white font-mono-num font-bold focus:outline-none"
+                      className="w-full bg-[#080808] border-2 border-neutral-700 focus:border-red-600 rounded-xl py-2 text-center text-lg sm:text-xl text-white font-mono-num font-bold focus:outline-none"
                     />
                   </div>
 
@@ -311,7 +349,7 @@ export default function AdminLapEntryModal({
                       max="59"
                       value={secs}
                       onChange={(e) => setSecs(e.target.value)}
-                      className="w-full bg-[#080808] border-2 border-neutral-700 focus:border-red-600 rounded-xl py-2.5 text-center text-xl text-white font-mono-num font-bold focus:outline-none"
+                      className="w-full bg-[#080808] border-2 border-neutral-700 focus:border-red-600 rounded-xl py-2 text-center text-lg sm:text-xl text-white font-mono-num font-bold focus:outline-none"
                     />
                   </div>
 
@@ -323,13 +361,13 @@ export default function AdminLapEntryModal({
                       max="999"
                       value={millis}
                       onChange={(e) => setMillis(e.target.value)}
-                      className="w-full bg-[#080808] border-2 border-neutral-700 focus:border-red-600 rounded-xl py-2.5 text-center text-xl text-white font-mono-num font-bold focus:outline-none"
+                      className="w-full bg-[#080808] border-2 border-neutral-700 focus:border-red-600 rounded-xl py-2 text-center text-lg sm:text-xl text-white font-mono-num font-bold focus:outline-none"
                     />
                   </div>
                 </div>
 
                 {/* Live Formatted Output */}
-                <div className="mt-2.5 pt-2 border-t border-neutral-900 flex items-center justify-between text-xs font-mono">
+                <div className="mt-2 pt-2 border-t border-neutral-900 flex items-center justify-between text-xs font-mono">
                   <span className="text-neutral-400">Result Lap Time:</span>
                   <span className="text-red-400 font-black text-sm">
                     {formatLapTime(calculatedMs)}
@@ -344,7 +382,7 @@ export default function AdminLapEntryModal({
                   placeholder="e.g. 1:03.412 or 63.412 or 103412"
                   value={singleText}
                   onChange={(e) => setSingleText(e.target.value)}
-                  className="w-full bg-[#080808] border-2 border-neutral-700 focus:border-red-600 rounded-xl px-4 py-2.5 text-base text-white font-mono-num font-bold focus:outline-none"
+                  className="w-full bg-[#080808] border-2 border-neutral-700 focus:border-red-600 rounded-xl px-4 py-2 text-base text-white font-mono-num font-bold focus:outline-none"
                 />
                 <div className="mt-2 flex items-center justify-between text-xs font-mono">
                   <span className="text-neutral-400">Parsed Preview:</span>
@@ -356,8 +394,76 @@ export default function AdminLapEntryModal({
             )}
           </div>
 
-          {/* 4. Optional: Mobile Number & Sim Rig */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* 4. SECTOR TIMES (OPTIONAL / EXPANDABLE) */}
+          <div className="bg-[#000000] border border-neutral-800 rounded-xl p-3">
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setShowSectors(!showSectors)}
+                className="flex items-center space-x-1.5 text-xs font-bold text-neutral-300 hover:text-white transition cursor-pointer"
+              >
+                <Gauge className="w-3.5 h-3.5 text-red-500" />
+                <span>Sector Times (S1 / S2 / S3)</span>
+                <span className="text-[10px] text-neutral-500 font-normal">
+                  {showSectors ? '▲ Hide' : '▼ Add (Optional)'}
+                </span>
+              </button>
+
+              {showSectors && s1 && s2 && s3 && (
+                <button
+                  type="button"
+                  onClick={handleAutoCalcFromSectors}
+                  className="text-[10px] bg-red-950/80 border border-red-600 text-red-400 hover:text-white px-2 py-0.5 rounded font-bold transition flex items-center space-x-1 cursor-pointer"
+                  title="Sum S1 + S2 + S3 into Lap Time"
+                >
+                  <Zap className="w-3 h-3" />
+                  <span>Sum Sectors to Lap</span>
+                </button>
+              )}
+            </div>
+
+            {showSectors && (
+              <div className="mt-2.5 pt-2 border-t border-neutral-900">
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <span className="text-[10px] text-neutral-400 block mb-1 font-bold">SECTOR 1 (s)</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. 16.210"
+                      value={s1}
+                      onChange={(e) => setS1(e.target.value)}
+                      className="w-full bg-[#080808] border border-neutral-700 focus:border-red-600 rounded-lg py-1.5 text-center text-xs text-white font-mono placeholder-neutral-600 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] text-neutral-400 block mb-1 font-bold">SECTOR 2 (s)</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. 28.650"
+                      value={s2}
+                      onChange={(e) => setS2(e.target.value)}
+                      className="w-full bg-[#080808] border border-neutral-700 focus:border-red-600 rounded-lg py-1.5 text-center text-xs text-white font-mono placeholder-neutral-600 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] text-neutral-400 block mb-1 font-bold">SECTOR 3 (s)</span>
+                    <input
+                      type="text"
+                      placeholder="e.g. 18.552"
+                      value={s3}
+                      onChange={(e) => setS3(e.target.value)}
+                      className="w-full bg-[#080808] border border-neutral-700 focus:border-red-600 rounded-lg py-1.5 text-center text-xs text-white font-mono placeholder-neutral-600 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 5. Optional: Mobile Number & Sim Rig */}
+          <div className="grid grid-cols-2 gap-2.5">
             <div>
               <label className="text-xs font-bold text-neutral-300 block mb-1">
                 Mobile No. <span className="text-neutral-500 font-normal">(Optional)</span>
@@ -367,7 +473,7 @@ export default function AdminLapEntryModal({
                 placeholder="e.g. 9876543210"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                className="w-full bg-[#000000] border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white font-mono placeholder-neutral-600 focus:outline-none focus:border-red-600"
+                className="w-full bg-[#000000] border border-neutral-800 rounded-xl px-3 py-1.5 text-xs text-white font-mono placeholder-neutral-600 focus:outline-none focus:border-red-600"
               />
             </div>
 
@@ -378,7 +484,7 @@ export default function AdminLapEntryModal({
               <select
                 value={rig}
                 onChange={(e) => setRig(e.target.value)}
-                className="w-full bg-[#000000] border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-600"
+                className="w-full bg-[#000000] border border-neutral-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-red-600"
               >
                 {RIGS.map(r => (
                   <option key={r.id} value={r.id}>{r.name}</option>
@@ -387,7 +493,7 @@ export default function AdminLapEntryModal({
             </div>
           </div>
 
-          {/* 5. Lap Track Limits Toggle */}
+          {/* 6. Lap Track Limits Toggle */}
           <div className="flex items-center justify-between p-2.5 bg-[#000000] border border-neutral-800 rounded-xl">
             <span className="text-xs text-neutral-300 font-bold">Track Limits:</span>
             <label className="flex items-center space-x-2 cursor-pointer">
